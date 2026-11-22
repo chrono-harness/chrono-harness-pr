@@ -296,9 +296,11 @@ fn classify(state: &str) -> Result<&'static str, String> {
 }
 
 #[cfg(verus_keep_ghost)]
-use super::super::identifiers;
+use super::super::same_text;
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{verified_identifiers as identifiers, verus};
+use crate::verified_snapshot::same_text;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
@@ -307,5 +309,5 @@ use vstd::string::StringSliceAdditionalSpecFns;
 verus! {
 pub fn pull_request_merged(state: &str) -> (merged: bool)
     ensures merged == (state@ == "MERGED"@),
-{ identifiers::equal_text(state, "MERGED") }
+{ same_text(state, "MERGED") }
 }

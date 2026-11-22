@@ -654,7 +654,7 @@ fn exit_code(result: &Value) -> u8 {
 }
 
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::verus;
+use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 

@@ -86,6 +86,7 @@ dependencies = [
  "chrono-harness",
  "serde",
  "serde_json",
+ "verus_builtin_macros",
 ]
 
 [[package]]

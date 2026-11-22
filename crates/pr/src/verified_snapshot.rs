@@ -2,16 +2,11 @@
 #![allow(unexpected_cfgs)]
 
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::verus;
+use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::string::StringSliceAdditionalSpecFns;
-
-#[cfg(verus_keep_ghost)]
-extern crate chrono_identifiers as identifiers;
-#[cfg(not(verus_keep_ghost))]
-use chrono_harness::verified_identifiers as identifiers;
 
 #[cfg(verus_keep_ghost)]
 #[path = "lib.rs"]
@@ -22,6 +17,13 @@ pub use crate::{record_pr_observation, snapshot::pull_request_merged};
 pub use client::{record_pr_observation, snapshot::pull_request_merged};
 
 verus! {
+
+// The pinned verifier specifies standard String equality on character sequences.
+pub(crate) fn same_text(left: &str, right: &str) -> (same: bool)
+    ensures same <==> left@ == right@,
+{
+    left.to_string() == right.to_string()
+}
 
 #[cfg_attr(not(verus_keep_ghost), derive(Clone, Copy, Debug, PartialEq, Eq))]
 pub enum CheckClass {
@@ -60,25 +62,25 @@ pub open spec fn check_class_spec(state: Seq<char>) -> CheckClass {
 pub fn classify_check(state: &str) -> (class: CheckClass)
     ensures class == check_class_spec(state@),
 {
-    if identifiers::equal_text(state, "SUCCESS") {
+    if same_text(state, "SUCCESS") {
         CheckClass::Passed
-    } else if identifiers::equal_text(state, "MISSING")
-        || identifiers::equal_text(state, "QUEUED")
-        || identifiers::equal_text(state, "IN_PROGRESS")
-        || identifiers::equal_text(state, "WAITING")
-        || identifiers::equal_text(state, "REQUESTED")
-        || identifiers::equal_text(state, "PENDING")
-        || identifiers::equal_text(state, "EXPECTED") {
+    } else if same_text(state, "MISSING")
+        || same_text(state, "QUEUED")
+        || same_text(state, "IN_PROGRESS")
+        || same_text(state, "WAITING")
+        || same_text(state, "REQUESTED")
+        || same_text(state, "PENDING")
+        || same_text(state, "EXPECTED") {
         CheckClass::Pending
-    } else if identifiers::equal_text(state, "FAILURE")
-        || identifiers::equal_text(state, "ERROR")
-        || identifiers::equal_text(state, "CANCELLED")
-        || identifiers::equal_text(state, "TIMED_OUT")
-        || identifiers::equal_text(state, "ACTION_REQUIRED")
-        || identifiers::equal_text(state, "STARTUP_FAILURE")
-        || identifiers::equal_text(state, "STALE")
-        || identifiers::equal_text(state, "NEUTRAL")
-        || identifiers::equal_text(state, "SKIPPED") {
+    } else if same_text(state, "FAILURE")
+        || same_text(state, "ERROR")
+        || same_text(state, "CANCELLED")
+        || same_text(state, "TIMED_OUT")
+        || same_text(state, "ACTION_REQUIRED")
+        || same_text(state, "STARTUP_FAILURE")
+        || same_text(state, "STALE")
+        || same_text(state, "NEUTRAL")
+        || same_text(state, "SKIPPED") {
         CheckClass::Failed
     } else {
         CheckClass::Unknown
@@ -148,9 +150,9 @@ pub open spec fn pr_state_spec(state: Seq<char>) -> bool {
 pub fn valid_pr_state(state: &str) -> (valid: bool)
     ensures valid == pr_state_spec(state@),
 {
-    identifiers::equal_text(state, "OPEN")
-        || identifiers::equal_text(state, "CLOSED")
-        || identifiers::equal_text(state, "MERGED")
+    same_text(state, "OPEN")
+        || same_text(state, "CLOSED")
+        || same_text(state, "MERGED")
 }
 
 pub open spec fn snapshot_outcome_spec(
@@ -171,15 +173,15 @@ pub open spec fn snapshot_outcome_spec(
 
 pub fn observed_head_is_stale(observed: &str, expected: &str) -> (stale: bool)
     ensures stale == (observed@ != expected@),
-{ !identifiers::equal_text(observed, expected) }
+{ !same_text(observed, expected) }
 
 pub fn pull_request_closed(state: &str) -> (closed: bool)
     ensures closed == (state@ == "CLOSED"@),
-{ identifiers::equal_text(state, "CLOSED") }
+{ same_text(state, "CLOSED") }
 
 pub fn pull_request_open(state: &str) -> (open: bool)
     ensures open == (state@ == "OPEN"@),
-{ identifiers::equal_text(state, "OPEN") }
+{ same_text(state, "OPEN") }
 
 pub fn snapshot_outcome(stale: bool, closed: bool, failed: bool, pending: bool)
     -> (outcome: SnapshotOutcome)
