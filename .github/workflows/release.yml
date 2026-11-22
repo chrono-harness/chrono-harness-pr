@@ -5,7 +5,28 @@ on:
 permissions:
   contents: read
 jobs:
+  source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify release branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_oid=$(git rev-parse HEAD)
+          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]]; then
+            test "$source_oid" = "$(git rev-parse refs/remotes/origin/main)"
+          elif [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+[.][0-9]+[.][0-9]+-[0-9A-Za-z.-]+$ ]]; then
+            git merge-base --is-ancestor "$source_oid" refs/remotes/origin/dev
+          else
+            echo "Unsupported release tag: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
   build:
+    needs: source
     strategy:
       matrix:
         include:
@@ -41,7 +62,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093b
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: ${{ runner.temp }}/dist
           merge-multiple: true
