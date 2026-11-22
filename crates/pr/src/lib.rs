@@ -1,17 +1,20 @@
 #![allow(unexpected_cfgs)]
 
+#[cfg(not(verus_keep_ghost))]
+mod gh_process;
+#[cfg(not(verus_keep_ghost))]
+mod reminders;
 #[path = "snapshot.rs"]
 pub(crate) mod snapshot;
-#[cfg(not(verus_keep_ghost))]
-mod state;
 #[cfg(not(verus_keep_ghost))]
 pub mod verified_snapshot;
 
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{
-    CliOutput, CommandSpec, ProcessEvidence, file_identity, resolve_program,
-    run_process_observed_retained_for,
-};
+pub struct CliOutput {
+    pub exit_code: u8,
+    pub stdout: String,
+    pub stderr: String,
+}
 #[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
 #[cfg(not(verus_keep_ghost))]
@@ -27,7 +30,7 @@ use std::{
 };
 
 #[cfg(not(verus_keep_ghost))]
-const HELP: &str = "chrono-pr pr-open --head BRANCH --head-sha SHA --title TITLE --body-file FILE [--draft]\nchrono-pr pr-status --pr NUMBER --head-sha SHA [--continue-operation PATH]\nchrono-pr pr-watch --pr NUMBER --head-sha SHA\nAll commands: [--host-root ROOT] [--config .chrono-harness/pr.json]\nResults: JSON; exits 0 complete, 1 failed/closed, 2 unknown/error, 3 pending, 4 stale.\n";
+const HELP: &str = "chrono-pr pr-open --head BRANCH --head-sha SHA --title TITLE --body-file FILE [--draft]\nchrono-pr pr-status --pr NUMBER --head-sha SHA\nchrono-pr pr-watch --pr NUMBER --head-sha SHA\nchrono-pr pr-reminders [--host-root ROOT]\nAll remote commands: [--host-root ROOT] [--config .chrono-harness/pr.json]\nResults: JSON; exits 0 complete, 1 failed/closed, 2 unknown/error, 3 pending, 4 stale.\n";
 
 #[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
@@ -42,15 +45,13 @@ struct Config {
     watch_timeout_seconds: u64,
     watch_interval_seconds: u64,
     output_limit_bytes: usize,
-    state_directory: String,
-    state_producer: String,
 }
 
 #[cfg(not(verus_keep_ghost))]
 impl Config {
     fn validate(&self) -> Result<(), String> {
         let parts = self.repository.split('/').collect::<Vec<_>>();
-        if self.schema != "chrono-pr-config/v2"
+        if self.schema != "chrono-pr-config/v3"
             || parts.len() != 2
             || parts.iter().any(|s| {
                 s.is_empty()
@@ -61,15 +62,6 @@ impl Config {
             })
         {
             return Err("invalid config schema or owner/repository".into());
-        }
-        chrono_harness::relative_path(&self.state_directory)?;
-        if !self.state_directory.starts_with(".chrono-harness/state/")
-            || self.state_directory.ends_with('/')
-            || self.state_producer.is_empty()
-            || self.state_producer.len() > 128
-            || self.state_producer.chars().any(char::is_control)
-        {
-            return Err("invalid PR state directory or producer".into());
         }
         if !branch(&self.base)
             || self.gh.is_empty()
@@ -132,8 +124,6 @@ impl Args {
             let common = ["--host-root", "--config", "--head-sha"];
             let specific = if command == "pr-open" {
                 &["--head", "--title", "--body-file"][..]
-            } else if command == "pr-status" {
-                &["--pr", "--continue-operation"][..]
             } else {
                 &["--pr"][..]
             };
@@ -224,13 +214,11 @@ struct Client {
     root: PathBuf,
     config: Config,
     executable: String,
-    digest: String,
     env: BTreeMap<String, String>,
     started: Instant,
     budget: Duration,
     pending_deadline: bool,
     result: Value,
-    state: state::State,
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -248,9 +236,18 @@ impl Client {
             .get("--config")
             .map(String::as_str)
             .unwrap_or(".chrono-harness/pr.json");
-        let path = chrono_harness::no_symlink_parents(&root, config_path)?;
+        if !Path::new(config_path)
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err("config must be relative to the host".into());
+        }
+        let path = root.join(config_path);
+        if fs::canonicalize(&path).map_err(|e| e.to_string())? != path {
+            return Err("config path must not contain symlinks".into());
+        }
         let config_bytes = read_bounded(&path, 1048576)?;
-        let config: Config = chrono_harness::decode(&config_bytes)?;
+        let config: Config = serde_json::from_slice(&config_bytes).map_err(|e| e.to_string())?;
         config.validate()?;
         let mut env = BTreeMap::new();
         for key in [
@@ -277,32 +274,26 @@ impl Client {
             ("GH_PAGER".into(), "cat".into()),
             ("NO_COLOR".into(), "1".into()),
         ]);
-        let executable = resolve_program(
-            &root,
-            &config.gh,
-            Some(env.get("PATH").map(String::as_str).unwrap_or("")),
-        )?;
-        let (digest, _) = file_identity(&executable)?;
+        let executable = which::which_in(&config.gh, env.get("PATH"), &root)
+            .map_err(|e| format!("cannot resolve {}: {e}", config.gh))?;
         let budget = Duration::from_secs(if args.command == "pr-watch" {
             config.watch_timeout_seconds
         } else {
             config.api_timeout_seconds.saturating_mul(4)
         });
-        let state = state::State::begin(&root, &config, &config_bytes, args)?;
         let mut client = Self {
             root,
             config,
             executable: executable.to_str().ok_or("gh path must be UTF-8")?.into(),
-            digest,
             env,
             started: Instant::now(),
             budget,
             pending_deadline: false,
             result,
-            state,
         };
-        client.result["continued_operation"] = json!(client.state.continued_path());
-        client.result["operation"] = json!(client.state.path);
+        if let Err(err) = reminders::expire(&client.root) {
+            client.result["reminder_error"] = json!(err.to_string());
+        }
         client.result["repository"] = json!(client.config.repository);
         client.result["base"] = json!(client.config.base);
         Ok(client)
@@ -324,55 +315,27 @@ impl Client {
         } else {
             remaining.min(Duration::from_secs(self.config.api_timeout_seconds))
         };
-        let spec = CommandSpec {
-            program: self.executable.clone(),
-            args: argv,
-            env: self.env.clone(),
-            timeout_seconds: timeout.as_secs().max(1),
-            output_limit_bytes: self.config.output_limit_bytes,
-        };
-        let attempt = self
-            .state
-            .call_intent(&spec, input, &self.digest, timeout)?;
-        let paths = self.state.process_paths(attempt);
-        let evidence = ProcessEvidence {
-            root: &self.root,
-            stdout: &paths[0],
-            stderr: &paths[1],
-            launch: &paths[2],
-            publication: Some(self.state.publication()),
-        };
-        let process = run_process_observed_retained_for(
+        let process = gh_process::run(
             &self.root,
-            &spec,
+            Path::new(&self.executable),
+            &argv,
+            &self.env,
             input,
-            &self.digest,
             timeout,
-            &evidence,
-        )?;
-        let code = process.exit_code;
-        let receipt = match self.state.receipt(attempt, &process) {
-            Ok(receipt) => receipt,
-            Err(error) => {
-                let mut original = state::State::process_fields(&process);
-                original["stdout_bytes"] = json!(process.stdout_bytes);
-                original["stderr_bytes"] = json!(process.stderr_bytes);
-                original["storage_error"] = json!(error);
-                self.result["receipts"]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(original);
-                return Err(format!("PR original publication failed: {error}"));
-            }
-        };
-        self.result["receipts"]
-            .as_array_mut()
-            .unwrap()
-            .push(receipt);
+            self.config.output_limit_bytes,
+        )
+        .map_err(|err| format!("gh process: {err}"))?;
+        let code = process.exit_code.map(|v| v as i32).unwrap_or(-1);
+        let creating = argv.get(1).map(String::as_str) == Some("create");
+        let argv = std::iter::once(&self.executable)
+            .chain(argv.iter())
+            .collect::<Vec<_>>();
+        self.result["receipts"].as_array_mut().unwrap().push(json!({
+            "argv":argv, "child_pid":process.child_pid, "exit_code":code,"exit_signal":process.signal,
+            "failure":process.failure, "stdout_bytes":process.stdout,"stderr_bytes":process.stderr
+        }));
         if let Some(failure) = process.failure {
-            // Deadline classification is based on the local clock and the original
-            // producer failure, never on an assumed remote CI terminal state.
-            self.pending_deadline = wait && failure == "process timed out";
+            self.pending_deadline = wait && process.timed_out;
             return Err(failure);
         }
         if wait {
@@ -383,12 +346,18 @@ impl Client {
                 "GitHub command exited {code}; see original receipt"
             ));
         }
-        let value = if spec.args.get(1).map(String::as_str) == Some("create") {
-            json!(String::from_utf8(process.stdout_bytes).map_err(|_| "non-UTF-8 creation output")?)
+        let value = if creating {
+            json!(String::from_utf8(process.stdout).map_err(|_| "non-UTF-8 creation output")?)
         } else {
-            chrono_harness::json(&process.stdout_bytes)?
+            snapshot::response(&process.stdout)?
         };
         Ok((code, value))
+    }
+
+    fn update_reminder(&mut self, number: u64, head: Option<&str>) {
+        if let Err(err) = reminders::update(&self.root, &self.config.repository, number, head) {
+            self.result["reminder_error"] = json!(err.to_string());
+        }
     }
 
     fn graphql(&mut self, query: &str, variables: Vec<(&str, String)>) -> Result<Value, String> {
@@ -415,20 +384,21 @@ impl Client {
     }
 
     fn snapshot(&mut self, number: u64, head: &str) -> Result<snapshot::Snapshot, String> {
-        self.state.reserve_snapshot(number)?;
         let raw = self.graphql(
             snapshot::QUERY,
             vec![("number", number.to_string()), ("head", head.into())],
         )?;
         let mut parsed =
             snapshot::pull_request(&raw, &self.config.repository, &self.config.base, number)?;
-        let active = chrono_harness::verified_release::open_pr(&parsed.state);
+        let active = verified_snapshot::pull_request_open(&parsed.state);
         let checks =
             snapshot::evaluate_checks(&raw, &mut parsed, head, &self.config.required_checks);
         if record_pr_observation(active, checks.is_ok()) {
             // A verified terminal PR ends object custody even if this commit's
             // checks cannot be interpreted. The check result still fails below.
-            self.state.observed_snapshot(active)?;
+            if !active {
+                self.update_reminder(number, None);
+            }
             self.result["pr"] = json!(parsed.number);
             self.result["url"] = json!(parsed.url);
             self.result["observed_head"] = json!(parsed.head);
@@ -511,6 +481,7 @@ impl Client {
                     .ok_or(
                         "creation returned an invalid PR URL; query existing PR before retrying",
                     )?;
+                self.update_reminder(number, Some(head));
                 (number, "opened")
             }
             [item] => (
@@ -527,7 +498,6 @@ impl Client {
         if parsed.branch != branch {
             return Err("PR head branch mismatch".into());
         }
-        self.state.confirm_create();
         if parsed.outcome == "stale" || parsed.outcome == "closed" {
             return Ok(());
         }
@@ -595,7 +565,10 @@ pub fn run(raw: &[OsString]) -> CliOutput {
             stderr: String::new(),
         };
     }
-    let mut result = json!({"schema":"chrono-pr-result/v2","continued_operation":null,"operation":null,"operation_state":"unknown","pr_state":null,"merge_commit":null,"command":raw.first().and_then(|s|s.to_str()),"repository":null,"base":null,"pr":null,"expected_head":null,"observed_head":null,"outcome":"unknown","checks":[],"error":null,"receipts":[]});
+    if raw.first().is_some_and(|arg| arg == "pr-reminders") {
+        return reminders::list(raw);
+    }
+    let mut result = json!({"schema":"chrono-pr-result/v3","pr_state":null,"merge_commit":null,"command":raw.first().and_then(|s|s.to_str()),"repository":null,"base":null,"pr":null,"expected_head":null,"observed_head":null,"outcome":"unknown","checks":[],"error":null,"receipts":[]});
     match Args::parse(raw) {
         Err(error) => result["error"] = json!(error),
         Ok(args) => {
@@ -613,20 +586,6 @@ pub fn run(raw: &[OsString]) -> CliOutput {
                             client.result["outcome"] = json!("unknown");
                         }
                         client.result["error"] = json!(error);
-                    }
-                    client.result["operation_state"] = json!(client.state.operation_state());
-                    client.result["command_exit_code"] = json!(exit_code(&client.result));
-                    match state::now() {
-                        Ok(now) => client.result["updated_at_unix_millis"] = json!(now),
-                        Err(error) => {
-                            client.result["outcome"] = json!("unknown");
-                            client.result["error"] = json!(error);
-                        }
-                    }
-                    if let Err(error) = client.state.finish(&client.result) {
-                        client.result["operation_state"] = json!("unknown");
-                        client.result["outcome"] = json!("unknown");
-                        client.result["storage_error"] = json!(error);
                     }
                     result = client.result;
                 }

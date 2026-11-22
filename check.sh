@@ -5,9 +5,8 @@ scratch=$(mktemp -d)
 trap 'rm -rf -- "$scratch"' EXIT
 export CARGO_TARGET_DIR="$scratch/cargo"
 cargo fmt --check --manifest-path crates/pr/Cargo.toml
-cargo fmt --check --manifest-path crates/pr-tests/Cargo.toml
 cargo build --locked --manifest-path crates/pr/Cargo.toml
-cargo test --locked --manifest-path crates/pr-tests/Cargo.toml -- --test-threads=2
+cargo test --locked --features test-gh --manifest-path crates/pr/Cargo.toml -- --test-threads=2
 
 prove() {
   local label=$1 root=$2
@@ -25,4 +24,4 @@ prove() {
 }
 
 prove verify.pr-snapshot crates/pr/src/verified_snapshot.rs
-prove verify.pr-snapshot-tests crates/pr-tests/tests/verified_snapshot.rs
+prove verify.pr-snapshot-tests crates/pr/tests/verified_snapshot.rs
