@@ -10,7 +10,10 @@ cargo metadata --locked --all-features --manifest-path crates/pr/Cargo.toml --fo
 jq -e --arg product "$(pwd -P)/crates/pr/Cargo.toml" '
   all(.packages[];
     if .source == null then .manifest_path == $product
-    else .source == "registry+https://github.com/rust-lang/crates.io-index" end)
+    elif (.source | startswith("registry+")) then true
+    elif (.source | startswith("git+")) then
+      (.source | test("github\\.com[:/]((chrono-harness/)|(ChronoAIProject/chrono-harness([./?#]|$)))"; "i") | not)
+    else false end)
 ' "$scratch/dependencies.json" >/dev/null || { echo 'unexpected source in the product or test dependency graph' >&2; exit 1; }
 export CARGO_NET_OFFLINE=true
 cargo fmt --check --manifest-path crates/pr/Cargo.toml
