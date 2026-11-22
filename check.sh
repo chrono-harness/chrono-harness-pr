@@ -4,6 +4,15 @@ cd "$(dirname "$0")"
 scratch=$(mktemp -d)
 trap 'rm -rf -- "$scratch"' EXIT
 export CARGO_TARGET_DIR="$scratch/cargo"
+# Only this product may come from a local path. Check the resolved graph used
+# by the binary and its test fixture, then run Cargo offline from that point.
+cargo metadata --locked --all-features --manifest-path crates/pr/Cargo.toml --format-version 1 > "$scratch/dependencies.json"
+jq -e --arg product "$(pwd -P)/crates/pr/Cargo.toml" '
+  all(.packages[];
+    if .source == null then .manifest_path == $product
+    else .source == "registry+https://github.com/rust-lang/crates.io-index" end)
+' "$scratch/dependencies.json" >/dev/null || { echo 'unexpected source in the product or test dependency graph' >&2; exit 1; }
+export CARGO_NET_OFFLINE=true
 cargo fmt --check --manifest-path crates/pr/Cargo.toml
 cargo build --locked --manifest-path crates/pr/Cargo.toml
 cargo test --locked --features test-gh --manifest-path crates/pr/Cargo.toml -- --test-threads=2
