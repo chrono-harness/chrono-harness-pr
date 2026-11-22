@@ -1,11 +1,42 @@
 # chrono-harness-pr
 
-绑定提交的 GitHub PR 命令。
+`chrono-pr` 通过 GitHub CLI 打开 PR、查询指定提交、等待检查。每次远端查询都读取 GitHub。可用 `pr-reminders` 离线查看当前工作树里由本工具创建、仍待跟进的 PR。
 
-使用 `cargo build --locked --manifest-path crates/pr/Cargo.toml` 构建。安装 Verus 0.2026.04.24.f8e1704，运行 `VERUS=/path/to/verus ./check.sh` 检查格式、构建、测试及证明。
+## 安装与更新
 
-源码来自 [固定版本的原实现](https://github.com/ChronoAIProject/chrono-harness/tree/5f6892dfa2f73675a84e4ebdc3b06eb83b824d6e/crates/pr)。
+从本仓库选定一个固定的 [Release](https://github.com/chrono-harness/chrono-harness-pr/releases)，下载平台对应的 `chrono-pr-macos-aarch64` 或 `chrono-pr-linux-x86_64` 和该版本的 `SHA256SUMS`。核对文件 SHA-256，在工作树以外安装为可执行的 `chrono-pr`。升级和回退均选择所需标签，按同样方式校验、替换该命令。使用已有的 `gh` 登录身份。
 
-## Install a released binary
+## 配置与使用
 
-Choose a tag from this repository's [releases](https://github.com/chrono-harness/chrono-harness-pr/releases). Download the matching `chrono-pr-macos-aarch64` or `chrono-pr-linux-x86_64` asset and `SHA256SUMS`. Verify its SHA-256 against the matching entry and install it as `chrono-pr` outside your checkout. Each tag identifies its own source and checksums. The CLI uses your existing GitHub CLI authentication.
+在工作树的 `.chrono-harness/pr.json` 填写仓库、目标分支、分支要求的检查名及调用上限。也可通过 `--host-root` 指定工作树，或通过 `--config` 指定其下的配置文件。
+
+```json
+{
+  "schema": "chrono-pr-config/v3",
+  "repository": "chrono-harness/chrono-harness-runner",
+  "base": "main",
+  "gh": "gh",
+  "required_checks": ["check"],
+  "api_timeout_seconds": 60,
+  "watch_timeout_seconds": 3600,
+  "watch_interval_seconds": 60,
+  "output_limit_bytes": 1048576
+}
+```
+
+```sh
+chrono-pr pr-reminders
+chrono-pr pr-open --head my-branch --head-sha "$head_sha" --title "$title" --body-file body.md
+chrono-pr pr-status --pr 42 --head-sha "$head_sha"
+chrono-pr pr-watch --pr 42 --head-sha "$head_sha"
+```
+
+`pr-open` 支持 `--draft`，复用已有匹配的 PR。创建得到有效编号后即保存提醒，回读失败也可按编号重新查询。远端命令的标准输出为 `chrono-pr-result/v3` JSON，含提交、检查、合并身份及实际子进程的 argv、退出状态和有界输出字节。退出码分别为 0（成功）、1（检查失败或关闭）、2（错误或未知）、3（待定）、4（提交已变化）。如出现 `reminder_error`，远端结果仍可使用，本次本地提醒更新失败。
+
+提醒存放于工作树的 `.chrono-harness/pr-reminders.sqlite3`，应加入宿主的 Git 忽略规则。查询其他人的 PR 不会将其加入提醒。查到关闭或合并即移除；每次使用本工具时清除创建已满 30 天的提醒。工作树被宿主回收时整个本地库随之删除。需要长期保存的查询结果可直接从 stdout 写入自己的持久存储。
+
+旧预览版 v0.1.0-alpha.1 使用 v2 配置与操作账本。升级时将配置改为 v3，删除 `state_directory`、`state_producer`，重新查询指定 PR。旧预览版及其原校验文件仍可从对应标签取得。
+
+## 构建、测试与证明
+
+安装本仓固定的 Rust 工具链和 Verus `0.2026.04.24.f8e1704`，运行 `VERUS=/path/to/verus ./check.sh`。所有测试、命令替身和证明根都位于本仓的 `crates/pr` 产品内。构建发行二进制使用 `cargo build --release --locked --manifest-path crates/pr/Cargo.toml`。

@@ -6,7 +6,7 @@
 mod lifecycle;
 
 #[cfg(verus_keep_ghost)]
-#[path = "../../pr/src/verified_snapshot.rs"]
+#[path = "../src/verified_snapshot.rs"]
 mod policy;
 #[cfg(not(verus_keep_ghost))]
 use chrono_pr::verified_snapshot as policy;

@@ -311,3 +311,22 @@ pub fn pull_request_merged(state: &str) -> (merged: bool)
     ensures merged == (state@ == "MERGED"@),
 { same_text(state, "MERGED") }
 }
+
+/// Keep serde_json's depth and number limits; inspect object entries before
+/// accepting a response, because selecting one of two remote facts is ambiguous.
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn response(bytes: &[u8]) -> Result<Value, String> {
+    use json_syntax::{FragmentRef, Parse};
+    let parsed = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+    let (syntax, _) = json_syntax::Value::parse_slice(bytes).map_err(|e| e.to_string())?;
+    for (_, fragment) in syntax.traverse() {
+        if let FragmentRef::Value(json_syntax::Value::Object(object)) = fragment {
+            for entry in object.entries() {
+                if object.redundant_index_of(&entry.key).is_some() {
+                    return Err(format!("duplicate JSON member {}", entry.key));
+                }
+            }
+        }
+    }
+    Ok(parsed)
+}
