@@ -99,7 +99,15 @@ def plan(config, repository, event, event_name):
         require(branch in ("dev", "main"), "unsupported release branch")
         check_run(run, repository, branch, "check.yml", sha)
         if branch == "dev":
-            require(sha_of(repository, "heads/dev") == sha, "development branch has moved")
+            require(re.fullmatch(r"[a-f0-9]{40}", sha), "invalid source commit")
+            relation = api(f"repos/{repository}/compare/{sha}...dev")["status"]
+            require(relation in ("identical", "ahead"), "development branch does not contain this check")
+            stable_tag = "v" + version
+            path = f"repos/{repository}/git/matching-refs/tags/{stable_tag}"
+            if any(ref["ref"] == "refs/tags/" + stable_tag for ref in api(path)):
+                stable = api(f"repos/{repository}/releases/tags/{stable_tag}")
+                if not stable["draft"] and not stable["prerelease"]:
+                    return {"mode":"complete", "sha":sha, "tag":stable_tag}
             return {"mode": "preview", "sha": sha, "tag": f"v{version}-alpha.{run['run_number']}"}
     else:
         require(event_name == "workflow_dispatch" and event["ref"] == "refs/heads/dev", "dispatch from dev")

@@ -16,8 +16,8 @@ event = {"repository":{"full_name":repository}, "workflow_run":run}
 
 
 class ReleasePlan(unittest.TestCase):
-    @patch.object(plan, "sha_of", return_value=sha)
-    def test_preview_rejects_wrong_events(self, read_ref):
+    @patch.object(plan, "api", side_effect=lambda path: {"status":"identical"} if "/compare/" in path else [])
+    def test_preview_rejects_wrong_events(self, github):
         selected = plan.plan(config, repository, event, "workflow_run")
         self.assertEqual(selected, {"mode":"preview", "sha":sha, "tag":"v0.1.0-alpha.15"})
         for key, value in (("repository", {"full_name":"fork/pr"}), ("head_repository", {"full_name":"fork/pr"}),
@@ -25,9 +25,14 @@ class ReleasePlan(unittest.TestCase):
                            ("path",".github/workflows/unrelated.yml"), ("head_branch","feature")):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 plan.plan(config, repository, dict(event, workflow_run=dict(run, **{key:value})), "workflow_run")
-        read_ref.return_value = "b"*40
-        with self.assertRaisesRegex(ValueError, "moved"):
+        github.side_effect = lambda path: {"status":"diverged"}
+        with self.assertRaisesRegex(ValueError, "does not contain"):
             plan.plan(config, repository, event, "workflow_run")
+
+    def test_published_stable_finishes_the_plan(self):
+        with patch.object(plan, "api", side_effect=[{"status":"ahead"}, [{"ref":"refs/tags/v0.1.0"}],
+                                                    {"draft":False,"prerelease":False}]):
+            self.assertEqual(plan.plan(config, repository, event, "workflow_run")["mode"], "complete")
 
     def test_validates_both_downloads(self):
         digest = "sha256:"+"c"*64
@@ -47,6 +52,11 @@ class ReleasePlan(unittest.TestCase):
                              for name in [*checks,"SHA256SUMS"]]}
         with patch.object(plan, "api", return_value=release):
             self.assertEqual(plan.public_preview(repository, tag, checks), release)
+            original_assets = release["assets"]
+            release["assets"] = []
+            with self.assertRaisesRegex(ValueError, "missing"):
+                plan.public_preview(repository, tag, checks)
+            release["assets"] = original_assets
             release["assets"][0]["digest"]="sha256:"+"0"*64
             with self.assertRaisesRegex(ValueError, "checksums"):
                 plan.public_preview(repository, tag, checks)

@@ -46,8 +46,19 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ needs.source.outputs.sha }}
+          ref: refs/heads/dev
+          fetch-depth: 0
           persist-credentials: false
+      - name: Bind the already checked commit from this repository's development branch
+        env:
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$SOURCE_SHA" HEAD
+          git checkout --detach "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - name: Build and exercise the release binary
         shell: bash
         env:
@@ -68,7 +79,7 @@ jobs:
   publish:
     needs: [source, build]
     if: >-
-      always() && needs.source.result == 'success' &&
+      always() && needs.source.result == 'success' && needs.source.outputs.mode != 'complete' &&
       (needs.build.result == 'success' || (needs.source.outputs.mode == 'stable' && needs.build.result == 'skipped'))
     runs-on: ubuntu-24.04
     permissions:
