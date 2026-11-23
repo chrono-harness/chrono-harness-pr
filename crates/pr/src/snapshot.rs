@@ -23,6 +23,7 @@ pub(crate) const QUERY: &str = r#"query($owner:String!,$name:String!,$number:Int
             databaseId name status conclusion
             checkSuite {
               databaseId
+              workflowRun { workflow { databaseId } }
               commit { oid }
               checkRuns(first:100,filterBy:{checkType:LATEST}) {
                 pageInfo { hasNextPage }
@@ -154,6 +155,7 @@ pub(crate) fn evaluate_checks(
         .get("statusCheckRollup")
         .ok_or("missing check rollup field")?;
     let mut current = BTreeMap::new();
+    let mut required_suites: BTreeMap<&str, (Option<u64>, BTreeSet<u64>)> = BTreeMap::new();
     let mut ids = BTreeSet::new();
     let mut suites = BTreeMap::new();
     if !rollup.is_null() {
@@ -245,8 +247,32 @@ pub(crate) fn evaluate_checks(
                 }
                 _ => return Err("unknown check context type".into()),
             };
-            if name.is_empty() || current.insert(name, state).is_some() {
+            if name.is_empty() {
                 return Err("empty or ambiguous check name".into());
+            }
+            if !required.iter().any(|required_name| required_name == name) {
+                continue;
+            }
+            let suite = &node["checkSuite"];
+            let workflow = suite
+                .pointer("/workflowRun/workflow/databaseId")
+                .and_then(Value::as_u64)
+                .filter(|id| *id > 0);
+            let (first_workflow, sources) = required_suites.entry(name).or_default();
+            let new_suite = suite["databaseId"]
+                .as_u64()
+                .is_some_and(|id| sources.insert(id));
+            if let Some(previous) = current.insert(name, state) {
+                if previous != "SUCCESS"
+                    || state != "SUCCESS"
+                    || workflow.is_none()
+                    || *first_workflow != workflow
+                    || !new_suite
+                {
+                    return Err("empty or ambiguous check name".into());
+                }
+            } else {
+                *first_workflow = workflow;
             }
         }
     }
