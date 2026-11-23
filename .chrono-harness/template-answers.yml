@@ -27,3 +27,6 @@ project_guide: ''
 repository: chrono-harness/chrono-harness-pr
 required_check: check
 
+
+manage_roadmap: true
+publisher_workflow: "Release chrono-pr"
