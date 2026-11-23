@@ -1,5 +1,7 @@
 # chrono-harness-pr 使用说明
 
+组件的用途、开发仓库和示例见 [Chrono Harness 用户与开发者入口](https://github.com/chrono-harness/chrono-harness-main)。
+
 `chrono-pr` 通过 GitHub CLI 打开 PR、查询指定提交、等待检查。每次远端查询都读取 GitHub。可用 `pr-reminders` 离线查看当前工作树里由本工具创建、仍待跟进的 PR。
 
 开发分支为 `dev`。日常 PR 合入开发分支，正式版从 `main` 发布。
