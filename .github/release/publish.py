@@ -31,6 +31,21 @@ def optional(path):
         raise
 
 
+def by_tag(tag):
+    public = optional("releases/tags/" + tag)
+    if public is not None:
+        return public
+    page = 1
+    while True:
+        releases = request(f"releases?per_page=100&page={page}")
+        for release in releases:
+            if release["tag_name"] == tag:
+                return release
+        if len(releases) < 100:
+            return None
+        page += 1
+
+
 def gh(*args):
     subprocess.run(["gh", *map(str, args), "--repo", repo], check=True)
 
@@ -63,7 +78,7 @@ def main():
     dist = Path(os.environ["DIST"])
     dist.mkdir(exist_ok=True)
     stable = mode == "stable"
-    release = optional("releases/tags/" + tag)
+    release = by_tag(tag)
     if stable:
         parent = os.environ["PREVIEW"]
         require(sha_of(repo, "tags/" + parent) == sha, "preview tag moved")
@@ -95,14 +110,17 @@ def main():
     if release is None:
         notes = ("Verified preview " + os.environ["PREVIEW"] + "\nConsumer acceptance: " + os.environ["PROOF"]
                  if stable else "Preview of " + sha)
-        flags = [] if stable else ["--prerelease"]
-        gh("release", "create", tag, "--verify-tag", "--title", tag, "--notes", notes, "--draft", *flags)
+        release = request("releases", method="POST", data=json.dumps({
+            "tag_name":tag, "name":tag, "body":notes, "draft":True, "prerelease":not stable
+        }).encode())
     else:
         require(release["draft"], "expected an incomplete draft")
     gh("release", "upload", tag, *[dist / n for n in digests], "--clobber")
-    draft = request("releases/tags/" + tag)
+    address = f"releases/{release['id']}"
+    draft = request(address)
     require(draft["draft"] and recorded(draft, tag, not stable) == digests, "draft differs from checked assets")
-    gh("release", "edit", tag, "--draft=false")
+    published = request(address, method="PATCH", data=b'{"draft":false}')
+    require(not published["draft"] and recorded(published, tag, not stable) == digests, "publication differs")
 
 
 if __name__ == "__main__":
