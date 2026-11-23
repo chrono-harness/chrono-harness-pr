@@ -29,6 +29,16 @@ class ReleasePlan(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not contain"):
             plan.plan(config, repository, event, "workflow_run")
 
+    def test_real_draft_api_shape_uses_the_release_id(self):
+        import os
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY":repository}):
+            import publish
+        draft={"id":455959087,"tag_name":"v0.1.0-alpha.29","draft":True,"assets":[]}
+        with patch.object(publish, "optional", return_value=None), patch.object(publish, "request",
+                side_effect=[[{"tag_name":"other"}]*100,[draft]]) as pages:
+            self.assertEqual(publish.by_tag(draft["tag_name"]), draft)
+            self.assertEqual(pages.call_args.args, ("releases?per_page=100&page=2",))
+
     def test_published_stable_finishes_the_plan(self):
         with patch.object(plan, "api", side_effect=[{"status":"ahead"}, [{"ref":"refs/tags/v0.1.0"}],
                                                     {"draft":False,"prerelease":False}]):
