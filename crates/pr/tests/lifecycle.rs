@@ -288,6 +288,39 @@ fn rejects_incomplete_or_ambiguous_remote_facts() {
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn repeated_success_requires_distinct_suites_of_the_same_workflow() {
+    for (workflow, second_suite, conclusion, expected_exit) in [
+        (Some(7), 201, "SUCCESS", 0),
+        (Some(8), 201, "SUCCESS", 2),
+        (None, 201, "SUCCESS", 2),
+        (Some(7), 201, "FAILURE", 2),
+        (Some(7), 200, "SUCCESS", 2),
+    ] {
+        let mut value = snapshot();
+        let checks = value
+            .pointer_mut("/data/repository/object/statusCheckRollup/contexts/nodes")
+            .unwrap()
+            .as_array_mut()
+            .unwrap();
+        checks[0]["checkSuite"]["workflowRun"] = json!({"workflow":{"databaseId":7}});
+        let mut second = checks[0].clone();
+        second["databaseId"] = json!(101);
+        second["conclusion"] = json!(conclusion);
+        second["checkSuite"]["databaseId"] = json!(second_suite);
+        second["checkSuite"]["workflowRun"] = json!({"workflow":{"databaseId":workflow}});
+        second["checkSuite"]["checkRuns"]["nodes"] = json!([{"databaseId":101}]);
+        if second_suite == 200 {
+            let ids = json!([{"databaseId":100},{"databaseId":101}]);
+            checks[0]["checkSuite"]["checkRuns"]["nodes"] = ids.clone();
+            second["checkSuite"]["checkRuns"]["nodes"] = ids;
+        }
+        checks.push(second);
+        assert_eq!(Host::new(vec![api(value)]).status().0, expected_exit);
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn latest_rerun_and_legacy_status_are_supported() {
     let mut s = snapshot();
     let nodes = s["data"]["repository"]["object"]["statusCheckRollup"]["contexts"]["nodes"]
