@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .github/release -p test_plan.py
 mkdir -p target
 scratch=$(mktemp -d "$(pwd -P)/target/check.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT

@@ -40,3 +40,11 @@ chrono-pr pr-watch --pr 42 --head-sha "$head_sha"
 ## 构建、测试与证明
 
 安装本仓固定的 Rust 工具链和 Verus `0.2026.04.24.f8e1704`，运行 `VERUS=/path/to/verus ./check.sh`。所有测试、命令替身和证明根都位于本仓的 `crates/pr` 产品内。构建发行二进制使用 `cargo build --release --locked --manifest-path crates/pr/Cargo.toml`。
+
+## 预览和正式发布
+
+`.chrono-harness/release.json` 登记目标版本、消费仓库的分支、安装清单和实际验收作业。dev 的 push 检查成功后，Release chrono-pr 工作流为该提交创建 `v<version>-alpha.<check run_number>`，在 macOS arm64 和 Linux x86_64 编译并运行程序，发布两个二进制及 SHA256SUMS。
+
+示例仓库先锁定预览的两个 URL 和摘要，并在落地提交上通过登记的实际业务检查。收到该下游完成事件后，在本仓 dev 触发 `gh workflow run release.yml --ref dev`。工作流自行解析下游当前提交、对应 push 作业、安装版本、检查和两个平台的摘要。通过后将 main 快进到这个预览的同一提交，并把校验后的原资产发布为正式版。main 的已成功落地检查也会运行同一判定。跨仓触发方只需发一次事件。未安装事件转发的宿主可用上述命令唤醒。
+
+已公开资产不可覆盖。工作流重试会检查同一来源和现有资产，只有未完成的草稿可继续上传。发布策略只在本仓 GitHub Actions 使用。

@@ -1,0 +1,15 @@
+{
+  "version": "0.1.0",
+  "binary": "chrono-pr",
+  "consumer": {
+    "repository": "chrono-harness/chrono-harness-example",
+    "branch": "dev",
+    "workflow": "pr-adoption.yml",
+    "pin": ".config/mise/conf.d/chrono-harness.toml",
+    "jobs": [
+      "macos-aarch64",
+      "linux-x86_64"
+    ],
+    "step": "Read the landed pull request with the installed release"
+  }
+}
