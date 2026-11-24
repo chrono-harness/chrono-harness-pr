@@ -8,7 +8,7 @@
 
 ## 本仓开发
 
-产品位于 [`crates/pr`](crates/pr)。在仓库根目录运行 `mise exec -- ./check.sh` 执行本仓的检查。
+产品位于 [`crates/pr`](crates/pr)。在仓库根目录运行 `mise exec -- ./check.sh` 执行本仓的检查。 本地和 GitHub 使用同一份 Git DELTA、证明根与原生测试登记。macOS 单元执行 PR 状态的生产与独立测试证明、原生 PR 行为和发布配置检查，Linux 单元验证进程组退出，汇总作业读取原件。
 
 日常开发和 PR 使用 `dev`，正式版本从 `main` 发布。
 

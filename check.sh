@@ -1,6 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+if [[ $# -eq 0 ]]; then
+  /bin/sh .chrono-harness/ci/install.sh
+  export PATH="$PWD/.chrono-harness/bin:$PATH"
+  export CHRONO_CHECK_SOURCE=${CHRONO_CHECK_SOURCE:-local}
+  exec .chrono-harness/bin/chrono-harness check
+fi
+if [[ $# -eq 1 && $1 == --linux-process-group ]]; then
+  mkdir -p target
+  scratch=$(mktemp -d "$(pwd -P)/target/linux-process-group.XXXXXXXX")
+  trap 'rm -rf -- "$scratch"' EXIT
+  CARGO_TARGET_DIR="$scratch/cargo" cargo test --locked --features test-gh --manifest-path crates/pr/Cargo.toml --test lifecycle quiet_descendant
+  exit 0
+fi
+if [[ $# -ne 1 || $1 != --native ]]; then
+  echo 'usage: ./check.sh [--native|--linux-process-group]' >&2
+  exit 2
+fi
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .github/release -p test_plan.py
 mkdir -p target
 scratch=$(mktemp -d "$(pwd -P)/target/check.XXXXXXXX")
@@ -29,21 +46,6 @@ coverage_failure() {
   exit 1
 }
 
-verifier=$(command -v "${VERUS:-verus}") || coverage_failure "verifier not found"
-
-prove() {
-  chrono-host-bootstrap run-compiler-proof "$scratch" "$1" "$verifier" "$2" ||
-    coverage_failure "$1: verifier execution failed"
-}
-
-admit_proof() {
-  local label=$1
-  shift
-  chrono-host-bootstrap collect-compiler-proof "$scratch" "$label" "$verifier" \
-    0.2026.04.24.f8e1704 f8e17045c4ac17a02e566b8997070f2eecc255be "$@" ||
-    coverage_failure "$label: required proof result was not admitted"
-}
-
 # Read the exact library selected by Cargo in the build of the tested executable.
 metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
   [.[] | select(.reason == "compiler-artifact" and .manifest_path == $manifest
@@ -55,15 +57,3 @@ stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
 chrono-host-bootstrap check-compiler-sources native "$stem" \
   src/verified_snapshot.rs src/snapshot.rs src/notification.rs src/run_watch.rs src/reminders.rs src/lib.rs || coverage_failure "native library differs from required sources"
-
-prove verify.pr-snapshot crates/pr/src/verified_snapshot.rs
-prove verify.pr-snapshot-tests crates/pr/tests/verified_snapshot.rs
-
-admit_proof verify.pr-snapshot crates/pr/src/verified_snapshot.rs \
-  crates/pr/src/lib.rs \
-  crates/pr/src/snapshot.rs
-admit_proof verify.pr-snapshot-tests crates/pr/tests/verified_snapshot.rs \
-  crates/pr/tests/lifecycle.rs \
-  crates/pr/tests/../src/verified_snapshot.rs \
-  crates/pr/tests/../src/lib.rs \
-  crates/pr/tests/../src/snapshot.rs
