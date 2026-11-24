@@ -54,7 +54,7 @@ filename=${metadata##*/}
 stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
 chrono-host-bootstrap check-compiler-sources native "$stem" \
-  src/verified_snapshot.rs src/snapshot.rs src/notification.rs src/lib.rs || coverage_failure "native library differs from required sources"
+  src/verified_snapshot.rs src/snapshot.rs src/notification.rs src/reminders.rs src/lib.rs || coverage_failure "native library differs from required sources"
 
 prove verify.pr-snapshot crates/pr/src/verified_snapshot.rs
 prove verify.pr-snapshot-tests crates/pr/tests/verified_snapshot.rs

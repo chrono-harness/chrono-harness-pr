@@ -1,6 +1,6 @@
 //! Per-checkout reminders for PRs created by this tool. GitHub owns PR status.
-use crate::CliOutput;
-use rusqlite::{Connection, params};
+use crate::{CliOutput, verified_snapshot};
+use rusqlite::{Connection, functions::FunctionFlags, params};
 use serde_json::{Value, json};
 use std::{error::Error, ffi::OsString, path::Path, time::Duration};
 
@@ -28,13 +28,23 @@ fn database(root: &Path, create: bool) -> Result<Option<Connection>> {
             db.execute_batch("VACUUM")?;
         }
     }
+    let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
+    db.create_scalar_function("reminder_deadline", 1, flags, |ctx| {
+        Ok(verified_snapshot::reminder_deadline(ctx.get(0)?))
+    })?;
+    db.create_scalar_function("reminder_expired", 2, flags, |ctx| {
+        Ok(verified_snapshot::reminder_expired(
+            ctx.get(0)?,
+            ctx.get(1)?,
+        ))
+    })?;
     db.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS reminder(
           repository TEXT NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL,
           expires INTEGER NOT NULL, PRIMARY KEY(repository, number)
         ) WITHOUT ROWID;
-        DELETE FROM reminder WHERE expires <= unixepoch();",
+        DELETE FROM reminder WHERE reminder_expired(expires, unixepoch());",
     )?;
     Ok(Some(db))
 }
@@ -50,7 +60,7 @@ pub(crate) fn update(root: &Path, repository: &str, number: u64, head: Option<&s
     };
     if let Some(head) = head {
         db.execute(
-            "INSERT INTO reminder VALUES (?1,?2,?3,unixepoch('now','+30 days'))
+            "INSERT INTO reminder VALUES (?1,?2,?3,reminder_deadline(unixepoch()))
                     ON CONFLICT(repository,number) DO NOTHING",
             params![repository, number, head],
         )?;
@@ -75,7 +85,7 @@ fn read(raw: &[OsString]) -> Result<Vec<Value>> {
     };
     let mut select = db.prepare(
         "SELECT repository,number,head,expires FROM reminder
-                                 WHERE expires > unixepoch() ORDER BY repository,number",
+                                 WHERE NOT reminder_expired(expires, unixepoch()) ORDER BY repository,number",
     )?;
     let rows = select.query_map([], |r| {
         let repository: String = r.get(0)?;

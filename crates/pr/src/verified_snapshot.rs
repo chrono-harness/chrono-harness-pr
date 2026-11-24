@@ -18,6 +18,22 @@ pub use client::{record_pr_observation, snapshot::pull_request_merged};
 
 verus! {
 
+/// SQLite supplies signed Unix seconds for the observed creation time.
+pub fn reminder_deadline(created: i64) -> (deadline: Option<i64>)
+    ensures match deadline {
+        Some(value) => value as int == created as int + 30 * 24 * 60 * 60,
+        None => created as int + 30 * 24 * 60 * 60 > i64::MAX,
+    }
+{
+    created.checked_add(30 * 24 * 60 * 60)
+}
+
+pub fn reminder_expired(deadline: i64, now: i64) -> (expired: bool)
+    ensures expired == (deadline <= now),
+{
+    deadline <= now
+}
+
 // The pinned verifier specifies standard String equality on character sequences.
 pub(crate) fn same_text(left: &str, right: &str) -> (same: bool)
     ensures same <==> left@ == right@,
