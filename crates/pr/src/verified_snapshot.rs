@@ -183,6 +183,14 @@ pub fn pull_request_open(state: &str) -> (open: bool)
     ensures open == (state@ == "OPEN"@),
 { same_text(state, "OPEN") }
 
+/// GitHub can omit the associated PR list. The selected check suite then
+/// binds this completion to the original GitHub snapshot of the requested PR.
+pub fn notification_belongs(no_associations: bool, matching_pr: bool, matching_suite: bool) -> (accepted: bool)
+    ensures accepted == (if no_associations { matching_suite } else { matching_pr }),
+{
+    if no_associations { matching_suite } else { matching_pr }
+}
+
 pub fn snapshot_outcome(stale: bool, closed: bool, failed: bool, pending: bool)
     -> (outcome: SnapshotOutcome)
     ensures outcome == snapshot_outcome_spec(stale, closed, failed, pending),

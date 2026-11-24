@@ -106,8 +106,8 @@ fn api(value: Value) -> Value {
     json!({"prefix":["api","graphql"],"stdout":value.to_string()})
 }
 #[cfg(not(verus_keep_ghost))]
-fn watch(exit: i32) -> Value {
-    json!({"prefix":["pr","checks"],"stdout":"native wait result\n","exit":exit})
+fn completed_event() -> Value {
+    serde_json::from_str(include_str!("fixtures/workflow_run.json")).unwrap()
 }
 #[cfg(not(verus_keep_ghost))]
 fn pending() -> Value {
@@ -166,14 +166,25 @@ impl Host {
         .unwrap();
     }
     fn run(&self, args: &[&str]) -> (i32, Value) {
-        let output = Command::new(env!("CARGO_BIN_EXE_chrono-pr"))
+        self.run_with_input(args, &[], false)
+    }
+    fn run_with_input(&self, args: &[&str], bytes: &[u8], keep_open: bool) -> (i32, Value) {
+        use std::process::Stdio;
+        let mut child = Command::new(env!("CARGO_BIN_EXE_chrono-pr"))
             .args(args)
             .arg("--host-root")
             .arg(self.root.path())
             .current_dir("/")
             .env("GH_TOKEN", "fixture-secret-never-retain")
-            .output()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        input.write_all(bytes).unwrap();
+        let _held_until_result = keep_open.then_some(input);
+        let output = child.wait_with_output().unwrap();
         assert!(
             output.stderr.is_empty(),
             "{}",
@@ -182,6 +193,13 @@ impl Host {
         let result: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(result["schema"], "chrono-pr-result/v3");
         (output.status.code().unwrap(), result)
+    }
+    fn watch(&self, event: &Value) -> (i32, Value) {
+        self.run_with_input(
+            &["pr-watch", "--pr", "42", "--head-sha", HEAD],
+            format!("{event}\n").as_bytes(),
+            false,
+        )
     }
     fn status(&self) -> (i32, Value) {
         self.run(&["pr-status", "--pr", "42", "--head-sha", HEAD])
@@ -420,61 +438,72 @@ fn signal_keeps_the_original_streams_and_has_no_exit_code() {
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
-fn native_auth_failure_and_failed_readback_remain_unknown() {
-    let h = Host::new(vec![api(pending()), watch(4)]);
-    let (code, r) = h.run(&["pr-watch", "--pr", "42", "--head-sha", HEAD]);
-    assert_eq!(code, 2);
-    assert_eq!(r["outcome"], "unknown");
-    assert_eq!(h.calls().len(), 2);
-    let h = Host::new(vec![
+fn failed_readback_and_missing_or_mismatched_notification_remain_unknown() {
+    let host = Host::new(vec![
         api(pending()),
-        watch(0),
-        json!({"prefix":["api","graphql"],"stdout":"bad"}),
+        json!({"prefix":["api","graphql"],"exit":4,"stderr":"auth"}),
     ]);
-    let (code, result) = h.run(&["pr-watch", "--pr", "42", "--head-sha", HEAD]);
+    let (code, result) = host.watch(&completed_event());
     assert_eq!(code, 2, "{result}");
+    assert_eq!(result["outcome"], "unknown");
+    assert_eq!(host.calls().len(), 2);
+    let host = Host::new(vec![api(pending())]);
+    let (code, result) = host.run(&["pr-watch", "--pr", "42", "--head-sha", HEAD]);
+    assert_eq!(code, 2, "{result}");
+    assert_eq!(result["outcome"], "unknown");
+    assert_eq!(host.calls().len(), 1);
+    for (pointer, value) in [
+        ("/action", json!("requested")),
+        ("/repository/full_name", json!("other/host")),
+        ("/workflow_run/status", json!("in_progress")),
+        ("/workflow_run/head_sha", json!(OTHER)),
+        ("/workflow_run/pull_requests/0/number", json!(43)),
+        ("/workflow_run/pull_requests/0/head/sha", json!(OTHER)),
+    ] {
+        let host = Host::new(vec![api(pending())]);
+        let mut event = completed_event();
+        *event.pointer_mut(pointer).unwrap() = value;
+        let (code, result) = host.watch(&event);
+        assert_eq!(code, 2, "{pointer}: {result}");
+        assert_eq!(result["outcome"], "unknown");
+        assert_eq!(host.calls().len(), 1);
+    }
 }
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
-fn watch_joins_one_native_wait_and_rechecks_identity() {
-    let h = Host::new(vec![api(pending()), watch(0), api(snapshot())]);
-    let (code, r) = h.run(&["pr-watch", "--pr", "42", "--head-sha", HEAD]);
-    assert_eq!(code, 0, "{r}");
-    assert_eq!(r["outcome"], "passed");
-    let calls = h.calls();
-    assert_eq!(calls.len(), 3);
-    assert!(
-        calls[1]["args"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("--watch"))
-    );
-    assert!(
-        calls[1]["args"]
-            .as_array()
-            .unwrap()
-            .windows(2)
-            .any(|w| w == [json!("--interval"), json!("60")])
-    );
+fn one_matching_event_wakes_one_factual_readback() {
+    let host = Host::new(vec![api(pending()), api(snapshot())]);
+    let (code, result) = host.watch(&completed_event());
+    assert_eq!(code, 0, "{result}");
+    assert_eq!(result["outcome"], "passed");
+    assert_eq!(result["notification"]["run_id"], 857);
+    assert_eq!(host.calls().len(), 2);
+    assert!(host.calls().iter().all(|r| r["args"][0] == "api"));
+    let mut no_pr = completed_event();
+    no_pr["workflow_run"]["pull_requests"] = json!([]);
+    no_pr["workflow_run"]["check_suite_id"] = json!(200);
+    let host = Host::new(vec![api(pending()), api(snapshot())]);
+    assert_eq!(host.watch(&no_pr).0, 0);
+    no_pr["workflow_run"]["check_suite_id"] = json!(201);
+    let host = Host::new(vec![api(pending())]);
+    assert_eq!(host.watch(&no_pr).0, 2);
+    assert_eq!(host.calls().len(), 1);
     let mut changed = snapshot();
     changed["data"]["repository"]["pullRequest"]["headRefOid"] = json!(OTHER);
-    let h = Host::new(vec![api(pending()), watch(0), api(changed)]);
-    assert_eq!(h.run(&["pr-watch", "--pr", "42", "--head-sha", HEAD]).0, 4);
-}
-
-#[test]
-#[cfg(not(verus_keep_ghost))]
-fn native_exit_alone_never_certifies_success_and_terminal_needs_no_wait() {
-    let h = Host::new(vec![api(pending()), watch(0), api(pending())]);
-    let (code, r) = h.run(&["pr-watch", "--pr", "42", "--head-sha", HEAD]);
-    assert_eq!(code, 3);
-    assert_eq!(r["outcome"], "pending");
-    let h = Host::new(vec![api(snapshot())]);
-    assert_eq!(h.run(&["pr-watch", "--pr", "42", "--head-sha", HEAD]).0, 0);
-    assert_eq!(h.calls().len(), 1);
-    let h = Host::new(vec![api(pending()), watch(1), api(snapshot())]);
-    assert_eq!(h.run(&["pr-watch", "--pr", "42", "--head-sha", HEAD]).0, 0);
+    let host = Host::new(vec![api(pending()), api(changed)]);
+    assert_eq!(host.watch(&completed_event()).0, 4);
+    let host = Host::new(vec![api(pending()), api(pending())]);
+    assert_eq!(host.watch(&completed_event()).0, 3);
+    let host = Host::new(vec![api(snapshot())]);
+    assert_eq!(
+        host.run(&["pr-watch", "--pr", "42", "--head-sha", HEAD]).0,
+        0
+    );
+    assert_eq!(host.calls().len(), 1);
+    let host = Host::new(vec![api(pending()), api(snapshot())]);
+    let closed = json!({"action":"closed","repository":{"full_name":"example/host"},"pull_request":{"state":"closed","number":42,"head":{"sha":HEAD}}});
+    assert_eq!(host.watch(&closed).0, 0);
 }
 
 #[test]
@@ -624,68 +653,31 @@ fn invalid_arguments_and_config_do_no_remote_work() {
 #[cfg(not(verus_keep_ghost))]
 fn timeout_and_output_limits_preserve_the_original_local_receipt() {
     for initial_timeout in [false, true] {
-        let mut initial = api(pending());
+        let mut request = api(pending());
         if initial_timeout {
-            initial["sleep_ms"] = json!(1800);
+            request["sleep_ms"] = json!(1800);
         }
-        let h = Host::new(vec![
-            initial,
-            json!({"prefix":["pr","checks"],"stdout":"waiting\n","sleep_ms":1800}),
-        ]);
-        let mut c: Value = serde_json::from_slice(
-            &fs::read(h.root.path().join(".chrono-harness/pr.json")).unwrap(),
+        let host = Host::new(vec![request]);
+        let mut config: Value = serde_json::from_slice(
+            &fs::read(host.root.path().join(".chrono-harness/pr.json")).unwrap(),
         )
         .unwrap();
-        c["watch_timeout_seconds"] = json!(1);
-        h.write_config(c);
-        let (code, r) = h.run(&["pr-watch", "--pr", "42", "--head-sha", HEAD]);
-        let receipts = r["receipts"].as_array().unwrap_or_else(|| {
-            panic!("PR watch receipts are not an array: initial_timeout={initial_timeout}, exit={code}, result={r}")
-        });
-        let first = receipts.first().unwrap_or_else(|| {
-            panic!("PR watch returned no call receipt: initial_timeout={initial_timeout}, exit={code}, result={r}")
-        });
-        assert_eq!(r["expected_head"], HEAD, "{r}");
-        assert_eq!(
-            &first["argv"].as_array().unwrap()[1..3],
-            &[json!("api"), json!("graphql")],
-            "{r}"
-        );
-        // The same deadline also bounds the initial query. Without its real
-        // successful exit, even response bytes cannot establish a pending PR.
+        config["watch_timeout_seconds"] = json!(1);
+        host.write_config(config);
+        let (code, r) =
+            host.run_with_input(&["pr-watch", "--pr", "42", "--head-sha", HEAD], b"{", true);
+        assert_eq!(code, 2, "{r}");
+        assert_eq!(r["outcome"], "unknown");
+        assert_eq!(r["receipts"].as_array().unwrap().len(), 1, "{r}");
+        let first = &r["receipts"][0];
         if initial_query_requires_unknown(initial_timeout, first["failure"] == "process timed out")
         {
-            assert_eq!(code, 2, "{r}");
-            assert_eq!(r["outcome"], "unknown", "{r}");
             assert_eq!(r["observed_head"], Value::Null, "{r}");
-            assert_eq!(r["error"], "process timed out", "{r}");
-            assert_eq!(receipts.len(), 1, "{r}");
-            assert_eq!(first["failure"], "process timed out", "{r}");
-            assert!(first["child_pid"].is_u64(), "{r}");
-            continue;
-        }
-        assert_eq!(code, 3, "{r}");
-        assert_eq!(r["outcome"], "pending", "{r}");
-        assert_eq!(r["observed_head"], HEAD, "{r}");
-        assert_eq!(first["exit_code"], 0, "{r}");
-        assert_eq!(first["failure"], Value::Null, "{r}");
-        // The producer's receipts count actual dispatches; an interrupted
-        // fixture need not have finished publishing its own call log.
-        match receipts.len() {
-            1 => assert_eq!(
-                r["error"], "operation deadline reached; remote result remains unverified",
-                "{r}"
-            ),
-            2 => {
-                assert_eq!(
-                    &receipts[1]["argv"].as_array().unwrap()[1..3],
-                    &[json!("pr"), json!("checks")],
-                    "{r}"
-                );
-                assert_eq!(receipts[1]["failure"], "process timed out", "{r}");
-                assert!(receipts[1]["child_pid"].is_u64(), "{r}");
-            }
-            count => panic!("unexpected dispatch count {count}: {r}"),
+            assert_eq!(first["failure"], "process timed out");
+        } else {
+            assert_eq!(r["observed_head"], HEAD);
+            assert_eq!(first["exit_code"], 0);
+            assert_eq!(r["error"], "completion notification deadline reached");
         }
     }
     let h = Host::new(vec![
