@@ -103,35 +103,14 @@ fn notification(repo: &str, run: &Run, body: &Value) -> Option<Value> {
 }
 
 fn outcome(run: &Run, expected: &str, changed: bool) -> Result<&'static str, String> {
-    let completed = run.status == "completed";
-    if completed {
-        if !matches!(
-            run.conclusion.as_str(),
-            "success"
-                | "failure"
-                | "cancelled"
-                | "timed_out"
-                | "action_required"
-                | "neutral"
-                | "skipped"
-                | "stale"
-                | "startup_failure"
-        ) {
-            return Err("unknown completed workflow conclusion".into());
-        }
-    } else if !matches!(
-        run.status.as_str(),
-        "queued" | "requested" | "pending" | "waiting" | "in_progress"
-    ) || !run.conclusion.is_empty()
-    {
-        return Err("unknown or inconsistent workflow status".into());
-    }
-    Ok(verified_snapshot::push_watch_outcome(
-        expected != run.head_sha,
-        completed,
-        run.conclusion == "success",
+    verified_snapshot::workflow_outcome(
+        &run.status,
+        &run.conclusion,
+        &run.head_sha,
+        expected,
         changed,
-    ))
+    )
+    .map_err(str::to_owned)
 }
 
 pub(crate) fn watch(client: &mut Client, id: u64, expected: Option<&str>) -> Result<(), String> {
@@ -162,11 +141,16 @@ pub(crate) fn watch(client: &mut Client, id: u64, expected: Option<&str>) -> Res
         client.result["event_queries"] = json!(reads);
         client.result["notification"] = event;
         let now = read(client, id)?;
-        if now.workflow_database_id != first.workflow_database_id
-            || now.head_sha != first.head_sha
-            || now.head_branch != first.head_branch
-            || now.attempt < first.attempt
-        {
+        if !verified_snapshot::same_workflow_attempt(
+            first.workflow_database_id,
+            now.workflow_database_id,
+            &first.head_sha,
+            &now.head_sha,
+            &first.head_branch,
+            &now.head_branch,
+            first.attempt,
+            now.attempt,
+        ) {
             return Err(
                 "fixed workflow identity changed or GitHub returned an older attempt".into(),
             );

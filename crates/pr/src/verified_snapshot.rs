@@ -29,6 +29,83 @@ pub fn push_watch_outcome(stale: bool, completed: bool, success: bool, changed: 
     } else if changed { "changed" } else { "pending" }
 }
 
+pub open spec fn completed_conclusion(text: Seq<char>) -> bool {
+    text == "success"@ || text == "failure"@ || text == "cancelled"@ ||
+    text == "timed_out"@ || text == "action_required"@ || text == "neutral"@ ||
+    text == "skipped"@ || text == "stale"@ || text == "startup_failure"@
+}
+
+pub open spec fn pending_run_status(text: Seq<char>) -> bool {
+    text == "queued"@ || text == "requested"@ || text == "pending"@ ||
+    text == "waiting"@ || text == "in_progress"@
+}
+
+/// Validate the provider's observation before selecting a terminal or change result.
+pub fn workflow_outcome(status: &str, conclusion: &str, head: &str, expected: &str, changed: bool)
+    -> (out: Result<&'static str, &'static str>)
+    ensures
+        match out {
+            Err(error) => if status@ == "completed"@ {
+                !completed_conclusion(conclusion@) && error@ == "unknown completed workflow conclusion"@
+            } else {
+                (!pending_run_status(status@) || conclusion@ != ""@) &&
+                    error@ == "unknown or inconsistent workflow status"@
+            },
+            Ok(value) => {
+                (if status@ == "completed"@ { completed_conclusion(conclusion@) }
+                 else { pending_run_status(status@) && conclusion@ == ""@ }) &&
+                value@ == (if head@ != expected@ { "stale"@ } else if status@ == "completed"@ {
+                    if conclusion@ == "success"@ { "passed"@ } else { "failed"@ }
+                } else if changed { "changed"@ } else { "pending"@ })
+            },
+        },
+{
+    let completed = same_text(status, "completed");
+    if completed {
+        if !(same_text(conclusion, "success") || same_text(conclusion, "failure") ||
+            same_text(conclusion, "cancelled") || same_text(conclusion, "timed_out") ||
+            same_text(conclusion, "action_required") || same_text(conclusion, "neutral") ||
+            same_text(conclusion, "skipped") || same_text(conclusion, "stale") ||
+            same_text(conclusion, "startup_failure")) {
+            return Err("unknown completed workflow conclusion");
+        }
+    } else if !(same_text(status, "queued") || same_text(status, "requested") ||
+        same_text(status, "pending") || same_text(status, "waiting") || same_text(status, "in_progress"))
+        || !same_text(conclusion, "") {
+        return Err("unknown or inconsistent workflow status");
+    }
+    Ok(push_watch_outcome(!same_text(head, expected), completed, same_text(conclusion, "success"), changed))
+}
+
+pub fn same_workflow_attempt(first_id: u64, id: u64, first_head: &str, head: &str,
+    first_branch: &str, branch: &str, first_attempt: u64, attempt: u64) -> (accepted: bool)
+    ensures accepted == (id == first_id && head@ == first_head@ && branch@ == first_branch@ && attempt >= first_attempt),
+{
+    id == first_id && same_text(head, first_head) && same_text(branch, first_branch) && attempt >= first_attempt
+}
+
+/// An already failed or conflicting PR takes precedence over base movement.
+pub fn report_base_change(state: &str, previous_head: &str, next_head: &str,
+    previous_base: &str, next_base: &str, outcome: &str) -> (changed: bool)
+    ensures changed == (state@ == "OPEN"@ && previous_head@ == next_head@ && previous_base@ != next_base@
+                        && outcome@ != "conflict"@ && outcome@ != "failed"@),
+{
+    same_text(state, "OPEN") && same_text(previous_head, next_head) && !same_text(previous_base, next_base)
+        && !same_text(outcome, "conflict") && !same_text(outcome, "failed")
+}
+
+pub fn outcome_exit(outcome: &str) -> (code: u8)
+    ensures code == (if outcome@ == "opened"@ || outcome@ == "existing"@ || outcome@ == "passed"@ { 0u8 }
+        else if outcome@ == "failed"@ || outcome@ == "closed"@ || outcome@ == "conflict"@ { 1 }
+        else if outcome@ == "pending"@ || outcome@ == "changed"@ { 3 }
+        else if outcome@ == "stale"@ { 4 } else { 2 }),
+{
+    if same_text(outcome, "opened") || same_text(outcome, "existing") || same_text(outcome, "passed") { 0 }
+    else if same_text(outcome, "failed") || same_text(outcome, "closed") || same_text(outcome, "conflict") { 1 }
+    else if same_text(outcome, "pending") || same_text(outcome, "changed") { 3 }
+    else if same_text(outcome, "stale") { 4 } else { 2 }
+}
+
 /// SQLite supplies signed Unix seconds for the observed creation time.
 pub fn reminder_deadline(created: i64) -> (deadline: Option<i64>)
     ensures match deadline {

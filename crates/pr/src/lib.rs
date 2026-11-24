@@ -574,11 +574,14 @@ impl Client {
             readbacks += 1;
             self.result["notification_readbacks"] = json!(readbacks);
             let next = self.snapshot(number, head)?;
-            if next.state == "OPEN"
-                && next.head == current.head
-                && next.base_oid != current.base_oid
-                && !matches!(next.outcome, "conflict" | "failed")
-            {
+            if verified_snapshot::report_base_change(
+                &next.state,
+                &current.head,
+                &next.head,
+                &current.base_oid,
+                &next.base_oid,
+                next.outcome,
+            ) {
                 self.result["outcome"] = json!("changed");
                 return Ok(());
             }
@@ -640,13 +643,7 @@ pub fn run(raw: &[OsString]) -> CliOutput {
 
 #[cfg(not(verus_keep_ghost))]
 fn exit_code(result: &Value) -> u8 {
-    match result["outcome"].as_str().unwrap_or("unknown") {
-        "opened" | "existing" | "passed" => 0,
-        "failed" | "closed" | "conflict" => 1,
-        "pending" | "changed" => 3,
-        "stale" => 4,
-        _ => 2,
-    }
+    verified_snapshot::outcome_exit(result["outcome"].as_str().unwrap_or("unknown"))
 }
 
 #[cfg(not(verus_keep_ghost))]
