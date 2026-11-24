@@ -403,6 +403,23 @@ fn draft_creation_is_explicit_and_readback_failure_preserves_the_pr_number() {
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn signal_keeps_the_original_streams_and_has_no_exit_code() {
+    let host = Host::new(vec![json!({
+        "prefix": ["api", "graphql"], "stdout": "partial", "stderr": "closed", "signal": "TERM"
+    })]);
+    let (code, result) = host.status();
+    assert_eq!(code, 2);
+    assert_eq!(result["outcome"], "unknown");
+    assert_eq!(host.calls().len(), 1);
+    let receipt = &result["receipts"][0];
+    assert_eq!(receipt["exit_signal"], libc::SIGTERM);
+    assert_eq!(receipt["exit_code"], Value::Null);
+    assert_eq!(receipt["stdout_bytes"], json!(b"partial"));
+    assert_eq!(receipt["stderr_bytes"], json!(b"closed"));
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn native_auth_failure_and_failed_readback_remain_unknown() {
     let h = Host::new(vec![api(pending()), watch(4)]);
     let (code, r) = h.run(&["pr-watch", "--pr", "42", "--head-sha", HEAD]);

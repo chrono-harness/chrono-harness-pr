@@ -304,7 +304,7 @@ impl Client {
         argv: Vec<String>,
         input: &[u8],
         wait: bool,
-    ) -> Result<(i32, Value), String> {
+    ) -> Result<(u32, Value), String> {
         let remaining = self.budget.saturating_sub(self.started.elapsed());
         if remaining.is_zero() {
             self.pending_deadline = self.result["outcome"] == "pending";
@@ -325,19 +325,26 @@ impl Client {
             self.config.output_limit_bytes,
         )
         .map_err(|err| format!("gh process: {err}"))?;
-        let code = process.exit_code.map(|v| v as i32).unwrap_or(-1);
         let creating = argv.get(1).map(String::as_str) == Some("create");
         let argv = std::iter::once(&self.executable)
             .chain(argv.iter())
             .collect::<Vec<_>>();
         self.result["receipts"].as_array_mut().unwrap().push(json!({
-            "argv":argv, "child_pid":process.child_pid, "exit_code":code,"exit_signal":process.signal,
+            "argv":argv, "child_pid":process.child_pid, "exit_code":process.exit_code,"exit_signal":process.signal,
             "failure":process.failure, "stdout_bytes":process.stdout,"stderr_bytes":process.stderr
         }));
         if let Some(failure) = process.failure {
             self.pending_deadline = wait && process.timed_out;
             return Err(failure);
         }
+        let code = process.exit_code.ok_or_else(|| match process.signal {
+            Some(signal) => {
+                format!("GitHub command terminated by signal {signal}; see original receipt")
+            }
+            None => {
+                "GitHub command ended without an exit code or signal; see original receipt".into()
+            }
+        })?;
         if wait {
             return Ok((code, Value::Null));
         }
