@@ -17,8 +17,19 @@ fn database(root: &Path, create: bool) -> Result<Option<Connection>> {
     }
     let db = Connection::open(path)?;
     db.busy_timeout(Duration::from_secs(5))?;
+    db.pragma_update(None, "secure_delete", true)?;
+    let mode: i64 = db.pragma_query_value(None, "auto_vacuum", |row| row.get(0))?;
+    if mode != 1 {
+        // Empty databases adopt the format before their first table. Existing
+        // databases require a one-time rebuild to add SQLite's pointer map.
+        db.execute_batch("PRAGMA auto_vacuum=FULL")?;
+        let applied: i64 = db.pragma_query_value(None, "auto_vacuum", |row| row.get(0))?;
+        if applied != 1 {
+            db.execute_batch("VACUUM")?;
+        }
+    }
     db.execute_batch(
-        "PRAGMA secure_delete=ON;
+        "
         CREATE TABLE IF NOT EXISTS reminder(
           repository TEXT NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL,
           expires INTEGER NOT NULL, PRIMARY KEY(repository, number)
