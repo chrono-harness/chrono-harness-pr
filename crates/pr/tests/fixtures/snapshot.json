@@ -11,6 +11,8 @@
         "baseRefName": "dev",
         "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
         "mergeable": "MERGEABLE",
+        "headRef": {"target":{"oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+        "baseRef": {"target":{"oid":"cccccccccccccccccccccccccccccccccccccccc"}},
         "isDraft": false,
         "headRepository": {"nameWithOwner": "example/host"},
         "mergeCommit": null

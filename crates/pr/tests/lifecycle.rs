@@ -265,6 +265,7 @@ fn failure_skipped_and_missing_checks_cannot_pass() {
 fn stale_and_closed_are_distinct_from_check_failure() {
     let mut s = snapshot();
     s["data"]["repository"]["pullRequest"]["headRefOid"] = json!(OTHER);
+    s["data"]["repository"]["pullRequest"]["headRef"]["target"]["oid"] = json!(OTHER);
     let (code, r) = Host::new(vec![api(s)]).status();
     assert_eq!(code, 4);
     assert_eq!(r["outcome"], "stale");
@@ -531,6 +532,7 @@ fn one_matching_event_wakes_one_factual_readback() {
     assert_eq!(host.calls().len(), 1);
     let mut changed = snapshot();
     changed["data"]["repository"]["pullRequest"]["headRefOid"] = json!(OTHER);
+    changed["data"]["repository"]["pullRequest"]["headRef"]["target"]["oid"] = json!(OTHER);
     let host = Host::new(vec![api(pending()), api(changed)]);
     assert_eq!(host.watch(&completed_event()).0, 4);
     let host = Host::new(vec![api(pending()), api(pending())]);
@@ -579,7 +581,7 @@ fn base_push_rechecks_both_tips_and_only_reports_an_observed_change() {
     ] {
         let mut fresh = pending();
         fresh["data"]["repository"]["pullRequest"]["mergeable"] = json!(mergeable);
-        fresh["data"]["repository"]["pullRequest"]["baseRefOid"] = json!(next);
+        fresh["data"]["repository"]["pullRequest"]["baseRef"]["target"]["oid"] = json!(next);
         let host = Host::new(vec![api(pending()), api(fresh)]);
         let (code, result) = host.run_with_input(
             &["pr-watch", "--pr", "42", "--head-sha", HEAD],
@@ -607,6 +609,7 @@ fn fork_head_push_or_synchronize_wakes_the_original_pr() {
             json!("fork/host");
         let mut advanced = initial.clone();
         advanced["data"]["repository"]["pullRequest"]["headRefOid"] = json!(OTHER);
+        advanced["data"]["repository"]["pullRequest"]["headRef"]["target"]["oid"] = json!(OTHER);
         let host = Host::new(vec![api(initial), api(advanced)]);
         let (code, result) = host.watch(&event);
         assert_eq!((code, result["observed_head"].as_str()), (4, Some(OTHER)));
