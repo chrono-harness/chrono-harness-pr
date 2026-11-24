@@ -67,6 +67,11 @@ def check_ref(name, sha, reference):
                                      "reference": reference})
 
 
+def notes_match(release, expected):
+    return json.loads(judge("template-publication-v1", {"kind": "notes", "release": release,
+                                                        "expected": expected}))
+
+
 def publication_state(tag, sha, prerelease, assets, release):
     return json.loads(judge("template-publication-v1", {"kind": "state", "source": sha, "tag": tag,
                             "reference": optional("git/ref/tags/" + tag), "prerelease": prerelease,
@@ -153,20 +158,20 @@ def main():
     current = request(address)
     decision = publication_state(tag, sha, not stable, digests, current)
     require(decision["action"] == "resume", "expected a verified draft")
-    if origins and current.get("body") != notes:
+    if origins and not notes_match(current, notes):
         request(address, method="PATCH", data=json.dumps({"body": notes}).encode())
     if decision["missing"]:
         gh("release", "upload", tag, *[dist / name for name in decision["missing"]])
     draft = request(address)
     check_release(draft, tag, not stable, True, assets)
     if origins:
-        require(draft.get("body") == notes, "different build origins on draft")
+        require(notes_match(draft, notes), "different build origins on draft")
     check_ref("tags/" + tag, sha, request("git/ref/tags/" + tag))
     if stable:
         main = request("git/ref/heads/main")
         if main["object"]["sha"] != sha:
-            request("git/refs/heads/main", method="PATCH", data=json.dumps({"sha": sha, "force": False}).encode())
-        check_ref("heads/main", sha, request("git/ref/heads/main"))
+            main = request("git/refs/heads/main", method="PATCH", data=json.dumps({"sha": sha, "force": False}).encode())
+        check_ref("heads/main", sha, main)
     published = request(address, method="PATCH", data=b'{"draft":false}')
     check_release(published, tag, not stable, False, assets)
 

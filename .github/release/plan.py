@@ -41,7 +41,6 @@ def successful_run(repository, branch, workflow, sha):
     path = f"repos/{repository}/actions/workflows/{workflow}/runs?{query}"
     for run in api(path)["workflow_runs"]:
         if run["status"] == "completed" and run["conclusion"] == "success":
-            check_run(run, repository, branch, workflow, sha)
             return run
     raise ValueError(f"no successful {workflow} push for {repository}@{sha}")
 
@@ -97,6 +96,14 @@ def consumer_pin(config, repository, sha):
 CORE = r"(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)"
 
 
+def compare(repository, base, head):
+    return api(f"repos/{repository}/compare/{base}...{head}")
+
+
+def contains(repository, base, head):
+    judge("template-promotion-v1", {"kind": "contains", "comparison": compare(repository, base, head)})
+
+
 def latest_source_release(repository):
     rows = []
     page = 1
@@ -111,8 +118,7 @@ def latest_source_release(repository):
     if tag is None:
         return None
     sha = sha_of(repository, "tags/" + tag)
-    require(api(f"repos/{repository}/compare/{sha}...main")["status"] in ("identical", "ahead"),
-            "main does not contain the latest source release")
+    contains(repository, sha, "main")
     return tag, sha
 
 
@@ -131,11 +137,9 @@ def next_target(config, repository):
 def already_released(repository, latest, sha):
     if latest:
         tag, released = latest
-        relation = api(f"repos/{repository}/compare/{released}...{sha}")["status"]
-        require(relation != "diverged", "candidate diverges from the latest stable release")
-        if relation in ("identical", "behind"):
+        covered = judge("template-promotion-v1", {"kind": "candidate", "comparison": compare(repository, released, sha)})
+        if json.loads(covered):
             return {"mode": "complete", "sha": released, "tag": tag}
-        require(relation == "ahead", "invalid release ancestry")
     return None
 
 
@@ -157,17 +161,15 @@ def plan(config, repository, event, event_name):
             return completed
         if branch == "dev":
             require(re.fullmatch(r"[a-f0-9]{40}", sha), "invalid source commit")
-            relation = api(f"repos/{repository}/compare/{sha}...dev")["status"]
-            require(relation in ("identical", "ahead"), "development branch does not contain this check")
+            contains(repository, sha, "dev")
             stable_tag = "v" + version
             path = f"repos/{repository}/git/matching-refs/tags/{stable_tag}"
             if any(ref["ref"] == "refs/tags/" + stable_tag for ref in api(path)):
                 stable = api(f"repos/{repository}/releases/tags/{stable_tag}")
-                if not stable["draft"] and not stable["prerelease"]:
-                    require(stable["tag_name"] == stable_tag, "different stable release")
+                complete = judge("template-promotion-v1", {"kind": "explicit", "release": stable, "tag": stable_tag})
+                if json.loads(complete):
                     released = sha_of(repository, "tags/" + stable_tag)
-                    require(api(f"repos/{repository}/compare/{released}...main")["status"] in ("identical", "ahead"),
-                            "main does not contain the published stable release")
+                    contains(repository, released, "main")
                     return {"mode": "complete", "sha": released, "tag": stable_tag}
             return {"mode": "preview", "sha": sha, "tag": f"v{version}-alpha.{run['run_number']}"}
     else:
@@ -178,21 +180,21 @@ def plan(config, repository, event, event_name):
     downstream, branch = consumer["repository"], consumer["branch"]
     adopted = sha_of(downstream, "heads/" + branch)
     run = successful_run(downstream, branch, consumer["workflow"], adopted)
+    check_run(run, downstream, branch, consumer["workflow"], adopted)
     check_acceptance(downstream, run, consumer)
     tag, checksums = consumer_pin(config, repository, adopted)
     selected = sha_of(repository, "tags/" + tag)
     completed = already_released(repository, latest, selected)
     if completed:
         return completed
-    require(sha is None or sha == selected, "main differs from the adopted preview")
     if event_name == "workflow_dispatch":
         require(config_at(repository, selected) == source_config, "adopted preview has a different release config")
     origin = successful_run(repository, "dev", check_workflow, selected)
-    require(tag == f"v{version}-alpha.{origin['run_number']}", "tag differs from the verified dev run")
-    require(api(f"repos/{repository}/compare/{selected}...dev")["status"] in ("identical", "ahead"),
-            "preview is outside the development branch")
-    require(api(f"repos/{repository}/compare/main...{selected}")["status"] in ("identical", "ahead"),
-            "main cannot fast-forward to the preview")
+    judge("template-promotion-v1", {
+        "kind": "adopted", "checked_main": sha, "selected": selected, "tag": tag, "version": version,
+        "repository": repository, "workflow": check_workflow, "origin": origin,
+        "development": compare(repository, selected, "dev"), "main": compare(repository, "main", selected),
+    })
     public_preview(repository, tag, checksums)
     return {"mode": "stable", "sha": selected, "tag": "v" + version, "preview": tag,
             "consumer": downstream, "adopted": adopted, "proof": run["html_url"]}
