@@ -2,7 +2,6 @@
 //! state is read independently from GitHub for the original PR and commit.
 use serde_json::Value;
 use std::{
-    collections::BTreeSet,
     fs::File,
     io::{self, BufRead, BufReader, IsTerminal},
     os::fd::{AsFd, AsRawFd},
@@ -84,21 +83,39 @@ impl Frames {
     }
 }
 
-pub(crate) fn wait(
-    repo: &str,
-    number: u64,
-    head: &str,
-    required_suites: &BTreeSet<u64>,
-    deadline: Instant,
-    limit: usize,
-) -> Result<Value, String> {
-    let body = Frames::stdin(deadline, limit)?.next()?;
-    if body
-        .pointer("/repository/full_name")
-        .and_then(Value::as_str)
-        != Some(repo)
+pub(crate) fn pr_event(
+    body: &Value,
+    repository: &str,
+    base: &str,
+    pr: &crate::snapshot::Snapshot,
+) -> Option<Value> {
+    let event_repo = body.pointer("/repository/full_name")?.as_str()?;
+    let head = pr.head.as_str();
+    let number = pr.number;
+    let required_suites = &pr.required_suite_ids;
+    let transition = |before: &str| {
+        let after = body["after"].as_str()?;
+        (body["before"] == before && after != before && crate::snapshot::sha(after))
+            .then_some(after)
+    };
+    if let Some(branch) = body["ref"]
+        .as_str()
+        .and_then(|r| r.strip_prefix("refs/heads/"))
     {
-        return Err("completion notification repository differs".into());
+        let (before, role) = if event_repo == pr.head_repository && branch == pr.branch {
+            (head, "head")
+        } else if event_repo == repository && branch == base {
+            (pr.base_oid.as_str(), "base")
+        } else {
+            return None;
+        };
+        let after = transition(before)?;
+        return Some(
+            serde_json::json!({"event":"push","role":role,"repository":event_repo,"ref":body["ref"],"before":before,"after":after}),
+        );
+    }
+    if event_repo != repository {
+        return None;
     }
     let run = &body["workflow_run"];
     let identity = match body["action"].as_str() {
@@ -120,7 +137,26 @@ pub(crate) fn wait(
                     )
                 }) =>
         {
-            serde_json::json!({"event":"workflow_run.completed","run_id":run["id"].as_u64().filter(|id| *id > 0).ok_or("notification lacks workflow run ID")?})
+            serde_json::json!({"event":"workflow_run.completed","run_id":run["id"].as_u64().filter(|id| *id > 0)?})
+        }
+        Some("synchronize")
+            if body["pull_request"]["number"].as_u64() == Some(number)
+                && body
+                    .pointer("/pull_request/head/repo/full_name")?
+                    .as_str()?
+                    == pr.head_repository
+                && body
+                    .pointer("/pull_request/base/repo/full_name")?
+                    .as_str()?
+                    == repository
+                && body["pull_request"]["head"]["ref"] == pr.branch
+                && body["pull_request"]["base"]["ref"] == base =>
+        {
+            let after = transition(head)?;
+            if body["pull_request"]["head"]["sha"] != after {
+                return None;
+            }
+            serde_json::json!({"event":"pull_request.synchronize","role":"head","before":head,"after":after})
         }
         Some("closed")
             if body["pull_request"]["state"] == "closed"
@@ -129,7 +165,7 @@ pub(crate) fn wait(
         {
             serde_json::json!({"event":"pull_request.closed"})
         }
-        _ => return Err("completion notification does not match the requested PR and head".into()),
+        _ => return None,
     };
-    Ok(identity)
+    Some(identity)
 }

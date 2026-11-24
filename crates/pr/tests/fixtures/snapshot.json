@@ -9,6 +9,8 @@
         "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "headRefName": "integration/change",
         "baseRefName": "dev",
+        "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+        "mergeable": "MERGEABLE",
         "isDraft": false,
         "headRepository": {"nameWithOwner": "example/host"},
         "mergeCommit": null
