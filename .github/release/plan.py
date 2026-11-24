@@ -17,6 +17,12 @@ def api(path):
     return json.loads(subprocess.check_output(["gh", "api", path]))
 
 
+def config_at(repository, sha):
+    require(re.fullmatch(r"[0-9a-f]{40}", sha), "release config requires a commit SHA")
+    doc = api(f"repos/{repository}/contents/.chrono-harness/release.json?ref={sha}")
+    return json.loads(base64.b64decode(doc["content"]))
+
+
 def judge(command, request):
     result = subprocess.run(["chrono-host-release", command], input=json.dumps(request),
                             text=True, capture_output=True)
@@ -138,6 +144,7 @@ def plan(config, repository, event, event_name):
     check_workflow = config["check"]["file"]
     require(re.fullmatch(CORE, config["version"]), "invalid release version")
     require(event["repository"]["full_name"] == repository, "wrong event repository")
+    source_config = config
     config, latest = next_target(config, repository)
     version = config["version"]
     if event_name == "workflow_run":
@@ -178,6 +185,8 @@ def plan(config, repository, event, event_name):
     if completed:
         return completed
     require(sha is None or sha == selected, "main differs from the adopted preview")
+    if event_name == "workflow_dispatch":
+        require(config_at(repository, selected) == source_config, "adopted preview has a different release config")
     origin = successful_run(repository, "dev", check_workflow, selected)
     require(tag == f"v{version}-alpha.{origin['run_number']}", "tag differs from the verified dev run")
     require(api(f"repos/{repository}/compare/{selected}...dev")["status"] in ("identical", "ahead"),
@@ -189,10 +198,14 @@ def plan(config, repository, event, event_name):
             "consumer": downstream, "adopted": adopted, "proof": run["html_url"]}
 
 
+def event_plan(repository, event, event_name, workflow_sha):
+    source = event["workflow_run"]["head_sha"] if event_name == "workflow_run" else workflow_sha
+    return plan(config_at(repository, source), repository, event, event_name)
+
+
 if __name__ == "__main__":
-    result = plan(json.loads(Path(".chrono-harness/release.json").read_text()),
-                  os.environ["GITHUB_REPOSITORY"], json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text()),
-                  os.environ["GITHUB_EVENT_NAME"])
+    result = event_plan(os.environ["GITHUB_REPOSITORY"], json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text()),
+                        os.environ["GITHUB_EVENT_NAME"], os.environ["GITHUB_SHA"])
     print(json.dumps(result))
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         for key, value in result.items():
