@@ -12,5 +12,10 @@
       "linux-x86_64"
     ],
     "step": "Read the landed pull request with the installed release"
+  },
+  "build": ".chrono-harness/build-release.sh",
+  "check": {
+    "name": "check",
+    "file": "check.yml"
   }
 }
