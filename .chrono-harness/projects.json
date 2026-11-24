@@ -1,0 +1,96 @@
+{
+  "schema_version": 2,
+  "status": "active",
+  "owners": [
+    "host",
+    "pr",
+    "pr-tests"
+  ],
+  "projects": [
+    {
+      "id": "pr",
+      "kind": "production",
+      "manifest": "crates/pr/Cargo.toml",
+      "lockfile": "crates/pr/Cargo.lock",
+      "root": "crates/pr",
+      "test_project": "pr-tests",
+      "actions": {
+        "verify_snapshot": {
+          "operation": "verify.pr-snapshot",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.pr-snapshot.rlib,dep-info=.chrono-harness/state/verify.pr-snapshot.rlib.d",
+            "crates/pr/src/verified_snapshot.rs",
+            "-o",
+            ".chrono-harness/state/verify.pr-snapshot.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      },
+      "language": "rust"
+    },
+    {
+      "id": "pr-tests",
+      "kind": "test",
+      "root": "crates/pr/tests",
+      "tests_for": "pr",
+      "actions": {
+        "verify_snapshot": {
+          "operation": "verify.pr-snapshot-tests",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.pr-snapshot-tests.rlib,dep-info=.chrono-harness/state/verify.pr-snapshot-tests.rlib.d",
+            "crates/pr/tests/verified_snapshot.rs",
+            "-o",
+            ".chrono-harness/state/verify.pr-snapshot-tests.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        },
+        "execute": {
+          "operation": "pr.owner-check",
+          "tool": "bash",
+          "argv": [
+            "./check.sh",
+            "--native"
+          ]
+        },
+        "linux_process_group": {
+          "operation": "pr.linux-process-group",
+          "tool": "bash",
+          "argv": [
+            "./check.sh",
+            "--linux-process-group"
+          ]
+        }
+      },
+      "language": "rust",
+      "test_groups": {
+        "pr-tests": "execute",
+        "pr-linux-process-group": "linux_process_group"
+      }
+    }
+  ],
+  "scripts": []
+}
