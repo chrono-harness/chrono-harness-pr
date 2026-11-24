@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from plan import check_release, judge, require
+from plan import check_release, config_at, judge, require
 
 
 repo = os.environ["GITHUB_REPOSITORY"]
@@ -105,7 +105,7 @@ def binary_origins(config, sha, digests):
 
 def main():
     mode, tag, sha = (os.environ[k] for k in ("MODE", "TAG", "SOURCE_SHA"))
-    config = json.loads(Path(".chrono-harness/release.json").read_text())
+    config = config_at(repo, sha)
     require(mode in ("preview", "stable"), "unsupported publication mode")
     require(config["kind"] in ("binary", "copier"), "unsupported product")
     binary = config["binary"] if config["kind"] == "binary" else None
