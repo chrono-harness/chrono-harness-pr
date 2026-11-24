@@ -15,7 +15,7 @@ jobs:
         with:
           version: 2026.11.12
           cache: false
-          install_args: http:verus
+          install_args: http:verus http:chrono-host-bootstrap http:chrono-harness
       - run: VERUS="$(mise which verus)" ./check.sh
   linux-process-group:
     runs-on: ubuntu-24.04
