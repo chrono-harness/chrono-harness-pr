@@ -69,38 +69,47 @@ def tag_at(tag, sha):
 
 def recorded(release, tag, prerelease):
     require(release["tag_name"] == tag and release["prerelease"] == prerelease, "different release kind")
-    return {a["name"]: a["digest"].removeprefix("sha256:") for a in release["assets"] if a["state"] == "uploaded"}
+    require(all(a["state"] == "uploaded" for a in release["assets"]), "incomplete release assets")
+    return {a["name"]: a["digest"].removeprefix("sha256:") for a in release["assets"]}
 
 
 def main():
     mode, tag, sha = (os.environ[k] for k in ("MODE", "TAG", "SOURCE_SHA"))
-    binary = json.loads(Path(".chrono-harness/release.json").read_text())["binary"]
+    config = json.loads(Path(".chrono-harness/release.json").read_text())
+    require(mode in ("preview", "stable"), "unsupported publication mode")
+    require(config["kind"] in ("binary", "copier"), "unsupported product")
+    binary = config["binary"] if config["kind"] == "binary" else None
     dist = Path(os.environ["DIST"])
     dist.mkdir(exist_ok=True)
     stable = mode == "stable"
     release = by_tag(tag)
-    if stable:
-        parent = os.environ["PREVIEW"]
-        require(sha_of(repo, "tags/" + parent) == sha, "preview tag moved")
-        gh("release", "download", parent, "--dir", dist)
-    elif release and not release["draft"]:
-        # A retried build may produce different bytes. The original release is immutable.
-        require(sha_of(repo, "tags/" + tag) == sha, "preview tag moved")
-        with tempfile.TemporaryDirectory() as tmp:
-            gh("release", "download", tag, "--dir", tmp)
-            require(recorded(release, tag, True) == sums(Path(tmp), binary), "invalid published preview")
-        return
-    if not stable:
+    if not stable and binary:
         names = [binary + "-macos-aarch64", binary + "-linux-x86_64"]
         (dist / "SHA256SUMS").write_text("".join(hashlib.sha256((dist/name).read_bytes()).hexdigest()
                                                   + "  " + name + "\n" for name in names))
-    digests = sums(dist, binary)
     if stable:
-        require(recorded(request("releases/tags/" + parent), parent, True) == digests, "preview bytes changed")
+        parent = os.environ["PREVIEW"]
+        require(sha_of(repo, "tags/" + parent) == sha, "preview tag moved")
+        if binary:
+            gh("release", "download", parent, "--dir", dist)
+    digests = sums(dist, binary) if binary else {}
+    if not stable and release and not release["draft"]:
+        require(sha_of(repo, "tags/" + tag) == sha, "preview tag moved")
+        with tempfile.TemporaryDirectory() as tmp:
+            if binary:
+                gh("release", "download", tag, "--dir", tmp)
+            expected = sums(Path(tmp), binary) if binary else {}
+            require(recorded(release, tag, True) == expected, "invalid published preview")
+            require(digests == expected, "retry assets differ from the published preview")
+        return
+    if stable:
+        preview = request("releases/tags/" + parent)
+        require(not preview["draft"] and recorded(preview, parent, True) == digests, "preview bytes changed")
         if release:
             require(sha_of(repo, "tags/" + tag) == sha, "stable tag points to a different source")
             if not release["draft"]:
                 require(recorded(release, tag, False) == digests, "stable assets differ from verified preview")
+                require(sha_of(repo, "heads/main") == sha, "main differs from published stable")
                 return
         # GitHub rejects a non-fast-forward update. Check again at the point of publication.
         if sha_of(repo, "heads/main") != sha:
@@ -115,7 +124,8 @@ def main():
         }).encode())
     else:
         require(release["draft"], "expected an incomplete draft")
-    gh("release", "upload", tag, *[dist / n for n in digests], "--clobber")
+    if digests:
+        gh("release", "upload", tag, *[dist / n for n in digests], "--clobber")
     address = f"releases/{release['id']}"
     draft = request(address)
     require(draft["draft"] and recorded(draft, tag, not stable) == digests, "draft differs from checked assets")
