@@ -34,7 +34,7 @@ chrono-pr pr-watch --pr 42 --head-sha "$head_sha" < completion.jsonl
 
 提醒存放于工作树的 `.chrono-harness/pr-reminders.sqlite3`，应加入宿主的 Git 忽略规则。SQLite 在提交删除时把空闲页交还文件系统。已有提醒库在首次使用时转换一次格式。查询其他人的 PR 不会将其加入提醒。查到关闭或合并即移除；每次使用本工具时清除创建已满 30 天的提醒。工作树被宿主回收时整个本地库随之删除。需要长期保存的查询结果可直接从 stdout 写入自己的持久存储。
 
-`pr-watch` 先查询指定 PR 及提交。如果必需检查还在运行，它从标准输入等候现有通知通道的一行 GitHub webhook JSON。可以传入 `workflow_run.completed` 或 `pull_request.closed` 原事件，要求仓库、PR 编号和 head SHA 匹配。工作流通知的 PR 列表为空时，必须命中首次 PR 查询已观察到的必需检查套件。程序随后向 GitHub 查询一次真实结果。通知不完整、通道关闭或到达 `watch_timeout_seconds` 时返回 unknown。中断后可用 `pr-status` 重新查询。已安装宿主的 `watch_interval_seconds` 配置仍可读取。
+`pr-watch` 先查询 GitHub 上的目标 PR、head、base 与合并状态。固定 head 上已有冲突时直接返回 `conflict`（退出 1）。必需检查仍在运行时，向标准输入逐行发送原始 GitHub webhook JSON。支持 `workflow_run.completed`、`pull_request.closed`、`pull_request.synchronize` 和 head 或 base 分支的 `push`。来自 fork 的 head 推送需要该 fork 的事件通道，目标仓的 synchronize 事件也可唤醒。无关仓库、无关分支或旧提交的事件会被略过。命令在匹配事件到达后重新读取 PR；head 已变返回 `stale`（退出 4），base 已变且确认冲突返回 `conflict`，base 已变且合并状态仍待计算时返回 `changed`（退出 3）。JSON 的 `observed_base`、`observed_head`、`head_repository` 和 `mergeable` 给出 GitHub 本次观察值。通知通道关闭、超时或查询失败时返回 `unknown`。
 
 旧预览版 v0.1.0-alpha.1 使用 v2 配置与操作账本。升级时将配置改为 v3，删除 `state_directory`、`state_producer`，重新查询指定 PR。旧预览版及其原校验文件仍可从对应标签取得。
 

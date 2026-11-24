@@ -34,7 +34,7 @@ use std::{
 };
 
 #[cfg(not(verus_keep_ghost))]
-const HELP: &str = "chrono-pr pr-open --head BRANCH --head-sha SHA --title TITLE --body-file FILE [--draft]\nchrono-pr pr-status --pr NUMBER --head-sha SHA\nchrono-pr pr-watch --pr NUMBER --head-sha SHA\nchrono-pr pr-reminders [--host-root ROOT]\nchrono-pr run-watch --run ID [--head-sha SHA]\nAll remote commands: [--host-root ROOT] [--config .chrono-harness/pr.json]\nResults: JSON; exits 0 complete, 1 failed/closed, 2 unknown/error, 3 pending, 4 stale.\n";
+const HELP: &str = "chrono-pr pr-open --head BRANCH --head-sha SHA --title TITLE --body-file FILE [--draft]\nchrono-pr pr-status --pr NUMBER --head-sha SHA\nchrono-pr pr-watch --pr NUMBER --head-sha SHA\nchrono-pr pr-reminders [--host-root ROOT]\nchrono-pr run-watch --run ID [--head-sha SHA]\nAll remote commands: [--host-root ROOT] [--config .chrono-harness/pr.json]\nResults: JSON; exits 0 complete, 1 failed/closed/conflict, 2 unknown/error, 3 pending/changed, 4 stale.\n";
 
 #[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
@@ -420,6 +420,9 @@ impl Client {
             self.result["url"] = json!(parsed.url);
             self.result["observed_head"] = json!(parsed.head);
             self.result["pr_state"] = json!(parsed.state);
+            self.result["head_repository"] = json!(parsed.head_repository);
+            self.result["observed_base"] = json!(parsed.base_oid);
+            self.result["mergeable"] = json!(parsed.mergeable);
             self.result["merge_commit"] = json!(parsed.merge_commit);
             self.result["draft"] = json!(parsed.draft);
             self.result["checks"] = json!([]);
@@ -511,7 +514,7 @@ impl Client {
         };
         self.result["pr"] = json!(number);
         let parsed = self.snapshot(number, head)?;
-        if parsed.branch != branch {
+        if parsed.branch != branch || parsed.head_repository != self.config.repository {
             return Err("PR head branch mismatch".into());
         }
         if parsed.outcome == "stale" || parsed.outcome == "closed" {
@@ -540,20 +543,51 @@ impl Client {
         }
         let number = args.number()?;
         let head = args.get("--head-sha")?;
-        let snapshot = self.snapshot(number, head)?;
-        if args.command == "pr-status" || snapshot.outcome != "pending" {
+        let mut current = self.snapshot(number, head)?;
+        if args.command == "pr-status" || current.outcome != "pending" {
             return Ok(());
         }
-        self.result["notification"] = notification::wait(
-            &self.config.repository,
-            number,
-            head,
-            &snapshot.required_suite_ids,
+        let mut frames = notification::Frames::stdin(
             self.started + self.budget,
             self.config.output_limit_bytes,
         )?;
-        self.snapshot(number, head)?;
-        Ok(())
+        let mut recent_events = std::collections::VecDeque::new();
+        let mut readbacks = 0u64;
+        loop {
+            let body = frames.next()?;
+            let Some(event) =
+                notification::pr_event(&body, &self.config.repository, &self.config.base, &current)
+            else {
+                continue;
+            };
+            if recent_events.contains(&event) {
+                continue;
+            }
+            if recent_events.len() == 64 {
+                recent_events.pop_front();
+            }
+            recent_events.push_back(event.clone());
+            self.result["notification"] = event;
+            self.result["receipts"].as_array_mut().unwrap().truncate(1);
+            readbacks += 1;
+            self.result["notification_readbacks"] = json!(readbacks);
+            let next = self.snapshot(number, head)?;
+            if next.state == "OPEN"
+                && next.head == current.head
+                && next.base_oid != current.base_oid
+                && !matches!(next.outcome, "conflict" | "failed")
+            {
+                self.result["outcome"] = json!("changed");
+                return Ok(());
+            }
+            if next.outcome != "pending"
+                || next.checks != current.checks
+                || next.mergeable != current.mergeable
+            {
+                return Ok(());
+            }
+            current = next;
+        }
     }
 }
 
@@ -606,7 +640,7 @@ pub fn run(raw: &[OsString]) -> CliOutput {
 fn exit_code(result: &Value) -> u8 {
     match result["outcome"].as_str().unwrap_or("unknown") {
         "opened" | "existing" | "passed" => 0,
-        "failed" | "closed" => 1,
+        "failed" | "closed" | "conflict" => 1,
         "pending" | "changed" => 3,
         "stale" => 4,
         _ => 2,
