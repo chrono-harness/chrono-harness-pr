@@ -45,9 +45,15 @@ def successful_run(repository, branch, workflow, sha):
     raise ValueError(f"no successful {workflow} push for {repository}@{sha}")
 
 
+def attempt_jobs(repository, run_id, attempt):
+    path = f"repos/{repository}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100"
+    pages = json.loads(subprocess.check_output(["gh", "api", "--paginate", "--slurp", path]))
+    return [job for page in pages for job in page["jobs"]]
+
+
 def check_acceptance(repository, run, consumer):
-    path = f"repos/{repository}/actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100"
-    judge("template-acceptance-v1", {"jobs": api(path)["jobs"], "sha": run["head_sha"],
+    jobs = attempt_jobs(repository, run["id"], run["run_attempt"])
+    judge("template-acceptance-v1", {"jobs": jobs, "sha": run["head_sha"],
                                      "required_jobs": consumer["jobs"], "step": consumer["step"]})
 
 
