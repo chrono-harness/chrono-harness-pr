@@ -1,0 +1,661 @@
+{
+  "schema_version": 2,
+  "status": "proposed",
+  "files": [
+    {
+      "path": ".chrono-harness/.gitignore",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/FILEMAP.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/USAGE.md",
+      "owner": "host",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/build-release.sh",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
+      "path": ".chrono-harness/ci/check.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/ci/install.sh",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ]
+    },
+    {
+      "path": ".chrono-harness/ci/units.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/config.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/judges.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/pr.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/projects.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/release.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
+      "path": ".chrono-harness/rules.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/template-answers.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/workflow.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/worktree.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".config/mise/conf.d/chrono-harness.toml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ]
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/bug.yml",
+      "owner": "host",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/documentation.yml",
+      "owner": "host",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/enhancement.yml",
+      "owner": "host",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/question.yml",
+      "owner": "host",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "owner": "host",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/release/plan.py",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
+      "path": ".github/release/publish.py",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/release/test_plan.py",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
+      "path": ".github/roadmap.cjs",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/workflows/check.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ]
+    },
+    {
+      "path": ".github/workflows/issue-roadmap.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
+      "path": ".gitignore",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": "AGENTS.md",
+      "owner": "host",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": [],
+      "symlink": "CLAUDE.md"
+    },
+    {
+      "path": "CLAUDE.md",
+      "owner": "host",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": "README.md",
+      "owner": "host",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": "check.sh",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/Cargo.lock",
+      "owner": "pr",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/Cargo.toml",
+      "owner": "pr",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/src/gh_process.rs",
+      "owner": "pr",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/src/gh_process/group.rs",
+      "owner": "pr",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/src/lib.rs",
+      "owner": "pr",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/pr/src/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot"
+          },
+          {
+            "path": "crates/pr/tests/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/pr/src/main.rs",
+      "owner": "pr",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/src/notification.rs",
+      "owner": "pr",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/src/reminders.rs",
+      "owner": "pr",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/src/run_watch.rs",
+      "owner": "pr",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/src/snapshot.rs",
+      "owner": "pr",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/pr/src/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot"
+          },
+          {
+            "path": "crates/pr/tests/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/pr/src/verified_snapshot.rs",
+      "owner": "pr",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/pr/src/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot"
+          },
+          {
+            "path": "crates/pr/tests/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/pr/tests/fixtures/push_run.json",
+      "owner": "pr-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/tests/fixtures/snapshot.json",
+      "owner": "pr-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/tests/fixtures/workflow_run.json",
+      "owner": "pr-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/tests/lifecycle.rs",
+      "owner": "pr-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": "crates/pr/tests/support/gh.rs",
+      "owner": "pr-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ]
+    },
+    {
+      "path": "crates/pr/tests/verified_snapshot.rs",
+      "owner": "pr-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": "docs/licenses/methodology-attribution.md",
+      "owner": "host",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": "docs/licenses/trureturing-Apache-2.0.txt",
+      "owner": "host",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ]
+    }
+  ],
+  "project_edges": [],
+  "cost_models": {
+    "unmeasured": {
+      "cpu_ms": null,
+      "wall_ms": null,
+      "peak_rss_bytes": null,
+      "io_bytes": null,
+      "basis": "unknown"
+    }
+  },
+  "test_costs": [
+    {
+      "test": "pr-tests",
+      "cost": "unmeasured"
+    },
+    {
+      "test": "pr-linux-process-group",
+      "cost": "unmeasured"
+    }
+  ],
+  "execution_plans": {
+    "test:pr-tests": {
+      "operations": [
+        "verify.pr-snapshot",
+        "verify.pr-snapshot-tests",
+        "pr.owner-check"
+      ],
+      "timeout_seconds": 600,
+      "output_limit_bytes": 2097152
+    },
+    "test:pr-linux-process-group": {
+      "operations": [
+        "pr.linux-process-group"
+      ],
+      "timeout_seconds": 600,
+      "output_limit_bytes": 2097152
+    }
+  }
+}
