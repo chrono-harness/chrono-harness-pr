@@ -1043,6 +1043,42 @@ fn push_run_checks_terminal_outcomes_commit_attempt_and_channel() {
     );
     assert_eq!(exit, 3, "{result}");
     assert_eq!(result["run"]["attempt"], 2);
+    // A new notification cannot replace the original workflow or move its attempt backwards.
+    for (field, value) in [
+        ("workflowDatabaseId", json!(9999)),
+        ("headBranch", json!("other")),
+        ("headSha", json!("2222222222222222222222222222222222222222")),
+        ("attempt", json!(1)),
+    ] {
+        let mut wrong = retry.clone();
+        wrong[field] = value;
+        let host = Host::new(vec![run_view(&retry), run_view(&wrong)]);
+        let (exit, result) = host.run_with_input(
+            &["run-watch", "--run", "857"],
+            format!("{run_event}\n").as_bytes(),
+            false,
+        );
+        assert_eq!(exit, 2, "{result}");
+        assert_eq!(result["outcome"], "unknown");
+        assert!(
+            result["error"]
+                .as_str()
+                .unwrap()
+                .contains("fixed workflow identity")
+        );
+    }
+    let mut inconsistent = initial.clone();
+    inconsistent["conclusion"] = json!("success");
+    let host = Host::new(vec![run_view(&inconsistent)]);
+    let (exit, result) = host.run(&[
+        "run-watch",
+        "--run",
+        "857",
+        "--head-sha",
+        "2222222222222222222222222222222222222222",
+    ]);
+    assert_eq!(exit, 2, "{result}");
+    assert_eq!(result["outcome"], "unknown");
     for (key, wrong) in [
         ("event", json!("pull_request")),
         ("databaseId", json!(3)),

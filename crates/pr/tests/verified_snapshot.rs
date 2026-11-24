@@ -35,6 +35,35 @@ fn push_run_change_and_terminal_priorities() {
     expect_snapshot_true(same_run_label(policy::push_watch_outcome(false,false,false,false), "pending"));
 }
 
+/// The same fixed workflow accepts progress in its own attempt or a later one.
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn reobserved_attempt_boundaries() {
+    expect_snapshot_true(policy::same_workflow_attempt(7, 7, "h", "h", "dev", "dev", 2, 2));
+    expect_snapshot_true(policy::same_workflow_attempt(7, 7, "h", "h", "dev", "dev", 2, 3));
+    expect_snapshot_true(!policy::same_workflow_attempt(7, 7, "h", "h", "dev", "dev", 2, 1));
+    expect_snapshot_true(!policy::same_workflow_attempt(7, 8, "h", "h", "dev", "dev", 2, 2));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn conflicting_base_change_keeps_failure_exit() {
+    expect_snapshot_true(!policy::report_base_change("OPEN", "h", "h", "base", "next", "conflict"));
+    expect_snapshot_true(!policy::report_base_change("OPEN", "h", "h", "base", "next", "failed"));
+    proof {
+        reveal_strlit("opened"); reveal_strlit("existing"); reveal_strlit("passed");
+        reveal_strlit("failed"); reveal_strlit("closed"); reveal_strlit("conflict");
+        reveal_strlit("changed"); reveal_strlit("pending"); reveal_strlit("stale");
+        assert("conflict"@[0] == 'c'); assert("existing"@[0] == 'e');
+        assert("changed"@[0] == 'c'); assert("conflict"@.len() == 8);
+        assert("changed"@.len() == 7); assert("opened"@.len() == 6);
+        assert("existing"@.len() == 8); assert("passed"@.len() == 6);
+        assert("failed"@.len() == 6); assert("closed"@.len() == 6);
+        assert("pending"@.len() == 7); assert("stale"@.len() == 5);
+    }
+    expect_snapshot_true(policy::outcome_exit("conflict") == 1);
+    expect_snapshot_true(policy::outcome_exit("changed") == 3);
+    expect_snapshot_true(policy::outcome_exit("stale") == 4);
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn reminders_end_at_the_recorded_second() {
     let deadline = policy::reminder_deadline(1_000);
