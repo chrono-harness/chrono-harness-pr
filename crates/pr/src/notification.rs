@@ -4,10 +4,85 @@ use serde_json::Value;
 use std::{
     collections::BTreeSet,
     fs::File,
-    io::{self, IsTerminal, Read},
+    io::{self, BufRead, BufReader, IsTerminal},
     os::fd::{AsFd, AsRawFd},
     time::Instant,
 };
+
+/// Keep the unread suffix when a single pipe write contains several deliveries.
+pub(crate) struct Frames {
+    input: BufReader<File>,
+    deadline: Instant,
+    limit: usize,
+}
+
+impl Frames {
+    pub(crate) fn stdin(deadline: Instant, limit: usize) -> Result<Self, String> {
+        let stdin = io::stdin();
+        if stdin.is_terminal() {
+            return Err("watch requires a GitHub notification stream on stdin".into());
+        }
+        let fd = stdin
+            .as_fd()
+            .try_clone_to_owned()
+            .map_err(|e| e.to_string())?;
+        Ok(Self {
+            input: BufReader::new(File::from(fd)),
+            deadline,
+            limit,
+        })
+    }
+
+    pub(crate) fn next(&mut self) -> Result<Value, String> {
+        let mut frame = Vec::new();
+        loop {
+            let remaining = self.deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err("completion notification deadline reached".into());
+            }
+            if self.input.buffer().is_empty() {
+                let mut fd = libc::pollfd {
+                    fd: self.input.get_ref().as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                let millis = remaining
+                    .as_millis()
+                    .saturating_add(1)
+                    .min(i32::MAX as u128) as i32;
+                match unsafe { libc::poll(&mut fd, 1, millis) } {
+                    -1 => {
+                        let error = io::Error::last_os_error();
+                        if error.kind() == io::ErrorKind::Interrupted {
+                            continue;
+                        }
+                        return Err(error.to_string());
+                    }
+                    0 => return Err("completion notification deadline reached".into()),
+                    _ => {}
+                }
+            }
+            let bytes = match self.input.fill_buf() {
+                Ok(bytes) => bytes,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error.to_string()),
+            };
+            if bytes.is_empty() {
+                return Err("notification channel closed before a complete frame".into());
+            }
+            let end = bytes.iter().position(|b| *b == b'\n');
+            let length = end.unwrap_or(bytes.len());
+            if frame.len().saturating_add(length) > self.limit {
+                return Err("completion notification exceeds configured byte limit".into());
+            }
+            frame.extend_from_slice(&bytes[..length]);
+            self.input.consume(length + usize::from(end.is_some()));
+            if end.is_some() {
+                return crate::snapshot::response(&frame);
+            }
+        }
+    }
+}
 
 pub(crate) fn wait(
     repo: &str,
@@ -17,58 +92,7 @@ pub(crate) fn wait(
     deadline: Instant,
     limit: usize,
 ) -> Result<Value, String> {
-    let stdin = io::stdin();
-    if stdin.is_terminal() {
-        return Err("pr-watch requires a completion notification on stdin".into());
-    }
-    let mut input = File::from(
-        stdin
-            .as_fd()
-            .try_clone_to_owned()
-            .map_err(|e| e.to_string())?,
-    );
-    let mut frame = Vec::new();
-    let mut chunk = [0; 4096];
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err("completion notification deadline reached".into());
-        }
-        let mut fd = libc::pollfd {
-            fd: input.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        let millis = remaining
-            .as_millis()
-            .saturating_add(1)
-            .min(i32::MAX as u128) as i32;
-        match unsafe { libc::poll(&mut fd, 1, millis) } {
-            -1 => {
-                let error = io::Error::last_os_error();
-                if error.kind() == io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(error.to_string());
-            }
-            0 => return Err("completion notification deadline reached".into()),
-            _ => {}
-        }
-        let count = input.read(&mut chunk).map_err(|e| e.to_string())?;
-        if count == 0 {
-            return Err("notification channel closed before a complete frame".into());
-        }
-        let end = chunk[..count].iter().position(|byte| *byte == b'\n');
-        let bytes = &chunk[..end.unwrap_or(count)];
-        if frame.len().saturating_add(bytes.len()) > limit {
-            return Err("completion notification exceeds configured byte limit".into());
-        }
-        frame.extend_from_slice(bytes);
-        if end.is_some() {
-            break;
-        }
-    }
-    let body = crate::snapshot::response(&frame)?;
+    let body = Frames::stdin(deadline, limit)?.next()?;
     if body
         .pointer("/repository/full_name")
         .and_then(Value::as_str)
