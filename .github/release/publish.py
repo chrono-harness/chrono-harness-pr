@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from plan import check_release, config_at, judge, require
+from plan import attempt_jobs, check_release, config_at, judge, require
 
 
 repo = os.environ["GITHUB_REPOSITORY"]
@@ -97,7 +97,7 @@ def binary_origins(config, sha, digests):
         attempt, artifact_id = int(selected["attempt"]), int(selected["id"])
         if attempt not in attempts:
             path = f"actions/runs/{run_id}/attempts/{attempt}"
-            attempts[attempt] = (request(path), request(path + "/jobs?per_page=100")["jobs"])
+            attempts[attempt] = (request(path), attempt_jobs(repo, run_id, attempt))
         run, jobs = attempts[attempt]
         query[key] = {
             "selected_run": int(selected["run"]), "attempt": attempt, "artifact_id": artifact_id,
