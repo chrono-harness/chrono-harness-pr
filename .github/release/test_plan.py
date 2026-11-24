@@ -32,11 +32,14 @@ class ReleasePlan(unittest.TestCase):
                 patch.object(plan.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")) as owner:
             selected = plan.plan(config, repository, event, "workflow_run")
         self.assertEqual(selected, {"mode": "preview", "sha": sha, "tag": stable + "-alpha.15"})
-        owner.assert_called_once()
-        args, kwargs = owner.call_args
-        self.assertEqual(args, (["chrono-host-release", "template-run-v1"],))
-        self.assertEqual(json.loads(kwargs["input"]), {
+        checked, contained = owner.call_args_list
+        self.assertEqual(checked.args, (["chrono-host-release", "template-run-v1"],))
+        self.assertEqual(json.loads(checked.kwargs["input"]), {
             "run": run, "repository": repository, "branch": "dev", "workflow": workflow, "sha": sha,
+        })
+        self.assertEqual(contained.args, (["chrono-host-release", "template-promotion-v1"],))
+        self.assertEqual(json.loads(contained.kwargs["input"]), {
+            "kind": "contains", "comparison": {"status": "identical"},
         })
 
 
