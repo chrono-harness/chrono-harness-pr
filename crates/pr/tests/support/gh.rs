@@ -37,5 +37,9 @@ fn main() {
     if let Some(ms) = step["sleep_ms"].as_u64() {
         std::thread::sleep(std::time::Duration::from_millis(ms));
     }
+    if step["signal"] == "TERM" {
+        unsafe { libc::raise(libc::SIGTERM) };
+        panic!("test signal did not terminate gh");
+    }
     std::process::exit(step["exit"].as_i64().unwrap_or(0) as i32);
 }
