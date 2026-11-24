@@ -6,6 +6,8 @@ mod gh_process;
 mod notification;
 #[cfg(not(verus_keep_ghost))]
 mod reminders;
+#[cfg(not(verus_keep_ghost))]
+mod run_watch;
 #[path = "snapshot.rs"]
 pub(crate) mod snapshot;
 #[cfg(not(verus_keep_ghost))]
@@ -32,7 +34,7 @@ use std::{
 };
 
 #[cfg(not(verus_keep_ghost))]
-const HELP: &str = "chrono-pr pr-open --head BRANCH --head-sha SHA --title TITLE --body-file FILE [--draft]\nchrono-pr pr-status --pr NUMBER --head-sha SHA\nchrono-pr pr-watch --pr NUMBER --head-sha SHA\nchrono-pr pr-reminders [--host-root ROOT]\nAll remote commands: [--host-root ROOT] [--config .chrono-harness/pr.json]\nResults: JSON; exits 0 complete, 1 failed/closed, 2 unknown/error, 3 pending, 4 stale.\n";
+const HELP: &str = "chrono-pr pr-open --head BRANCH --head-sha SHA --title TITLE --body-file FILE [--draft]\nchrono-pr pr-status --pr NUMBER --head-sha SHA\nchrono-pr pr-watch --pr NUMBER --head-sha SHA\nchrono-pr pr-reminders [--host-root ROOT]\nchrono-pr run-watch --run ID [--head-sha SHA]\nAll remote commands: [--host-root ROOT] [--config .chrono-harness/pr.json]\nResults: JSON; exits 0 complete, 1 failed/closed/conflict, 2 unknown/error, 3 pending/changed, 4 stale.\n";
 
 #[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
@@ -106,7 +108,7 @@ impl Args {
             .map(|s| s.to_str().ok_or("arguments must be UTF-8"))
             .collect::<Result<Vec<_>, _>>()?;
         let command = *raw.first().ok_or("missing command; use --help")?;
-        if !["pr-open", "pr-status", "pr-watch"].contains(&command) {
+        if !["pr-open", "pr-status", "pr-watch", "run-watch"].contains(&command) {
             return Err("unknown command; use --help".into());
         }
         let mut result = Self {
@@ -126,7 +128,9 @@ impl Args {
                 continue;
             }
             let common = ["--host-root", "--config", "--head-sha"];
-            let specific = if command == "pr-open" {
+            let specific = if command == "run-watch" {
+                &["--run"][..]
+            } else if command == "pr-open" {
                 &["--head", "--title", "--body-file"][..]
             } else {
                 &["--pr"][..]
@@ -146,6 +150,12 @@ impl Args {
             }
             index += 2;
         }
+        if command == "run-watch" {
+            result.run_id()?;
+            if !result.values.contains_key("--head-sha") {
+                return Ok(result);
+            }
+        }
         if !snapshot::sha(result.get("--head-sha")?) {
             return Err("--head-sha must be 40 lowercase hex digits".into());
         }
@@ -157,7 +167,7 @@ impl Args {
                 return Err("invalid head branch or title".into());
             }
             result.get("--body-file")?;
-        } else {
+        } else if command != "run-watch" {
             result.number()?;
         }
         Ok(result)
@@ -167,6 +177,16 @@ impl Args {
             .get(key)
             .map(String::as_str)
             .ok_or_else(|| format!("missing {key}"))
+    }
+    fn run_id(&self) -> Result<u64, String> {
+        let raw = self.get("--run")?;
+        if !raw.bytes().all(|b| b.is_ascii_digit()) {
+            return Err("invalid run ID".into());
+        }
+        raw.parse::<u64>()
+            .ok()
+            .filter(|n| *n > 0)
+            .ok_or_else(|| "invalid run ID".into())
     }
     fn number(&self) -> Result<u64, String> {
         let value = self.get("--pr")?;
@@ -279,11 +299,13 @@ impl Client {
         ]);
         let executable = which::which_in(&config.gh, env.get("PATH"), &root)
             .map_err(|e| format!("cannot resolve {}: {e}", config.gh))?;
-        let budget = Duration::from_secs(if args.command == "pr-watch" {
-            config.watch_timeout_seconds
-        } else {
-            config.api_timeout_seconds.saturating_mul(4)
-        });
+        let budget = Duration::from_secs(
+            if matches!(args.command.as_str(), "pr-watch" | "run-watch") {
+                config.watch_timeout_seconds
+            } else {
+                config.api_timeout_seconds.saturating_mul(4)
+            },
+        );
         let mut client = Self {
             root,
             config,
@@ -398,6 +420,11 @@ impl Client {
             self.result["url"] = json!(parsed.url);
             self.result["observed_head"] = json!(parsed.head);
             self.result["pr_state"] = json!(parsed.state);
+            self.result["head_repository"] = json!(parsed.head_repository);
+            self.result["observed_base"] = json!(parsed.base_oid);
+            self.result["pr_base_oid"] = json!(parsed.pr_base_oid);
+            self.result["pr_head_oid"] = json!(parsed.pr_head_oid);
+            self.result["mergeable"] = json!(parsed.mergeable);
             self.result["merge_commit"] = json!(parsed.merge_commit);
             self.result["draft"] = json!(parsed.draft);
             self.result["checks"] = json!([]);
@@ -489,7 +516,7 @@ impl Client {
         };
         self.result["pr"] = json!(number);
         let parsed = self.snapshot(number, head)?;
-        if parsed.branch != branch {
+        if parsed.branch != branch || parsed.head_repository != self.config.repository {
             return Err("PR head branch mismatch".into());
         }
         if parsed.outcome == "stale" || parsed.outcome == "closed" {
@@ -506,25 +533,63 @@ impl Client {
     }
 
     fn execute(&mut self, args: &Args) -> Result<(), String> {
+        if args.command == "run-watch" {
+            return run_watch::watch(
+                self,
+                args.run_id()?,
+                args.values.get("--head-sha").map(String::as_str),
+            );
+        }
         if args.command == "pr-open" {
             return self.open(args);
         }
         let number = args.number()?;
         let head = args.get("--head-sha")?;
-        let snapshot = self.snapshot(number, head)?;
-        if args.command == "pr-status" || snapshot.outcome != "pending" {
+        let mut current = self.snapshot(number, head)?;
+        if args.command == "pr-status" || current.outcome != "pending" {
             return Ok(());
         }
-        self.result["notification"] = notification::wait(
-            &self.config.repository,
-            number,
-            head,
-            &snapshot.required_suite_ids,
+        let mut frames = notification::Frames::stdin(
             self.started + self.budget,
             self.config.output_limit_bytes,
         )?;
-        self.snapshot(number, head)?;
-        Ok(())
+        let mut recent_events = std::collections::VecDeque::new();
+        let mut readbacks = 0u64;
+        loop {
+            let body = frames.next()?;
+            let Some(event) =
+                notification::pr_event(&body, &self.config.repository, &self.config.base, &current)
+            else {
+                continue;
+            };
+            if recent_events.contains(&event) {
+                continue;
+            }
+            if recent_events.len() == 64 {
+                recent_events.pop_front();
+            }
+            recent_events.push_back(event.clone());
+            self.result["notification"] = event;
+            self.result["receipts"].as_array_mut().unwrap().truncate(1);
+            readbacks += 1;
+            self.result["notification_readbacks"] = json!(readbacks);
+            let next = self.snapshot(number, head)?;
+            if next.state == "OPEN"
+                && next.head == current.head
+                && next.base_oid != current.base_oid
+                && !matches!(next.outcome, "conflict" | "failed")
+            {
+                self.result["outcome"] = json!("changed");
+                return Ok(());
+            }
+            if next.outcome != "pending"
+                || next.checks != current.checks
+                || next.mergeable != current.mergeable
+            {
+                return Ok(());
+            }
+            current = next;
+        }
     }
 }
 
@@ -541,10 +606,14 @@ pub fn run(raw: &[OsString]) -> CliOutput {
         return reminders::list(raw);
     }
     let mut result = json!({"schema":"chrono-pr-result/v3","pr_state":null,"merge_commit":null,"command":raw.first().and_then(|s|s.to_str()),"repository":null,"base":null,"pr":null,"expected_head":null,"observed_head":null,"outcome":"unknown","checks":[],"error":null,"receipts":[]});
+    if raw.first().is_some_and(|name| name == "run-watch") {
+        result = json!({"schema":"chrono-run-result/v1","command":"run-watch","repository":null,"run_id":null,"run":null,
+            "expected_head":null,"observed_head":null,"outcome":"unknown","error":null,"receipts":[]});
+    }
     match Args::parse(raw) {
         Err(error) => result["error"] = json!(error),
         Ok(args) => {
-            result["expected_head"] = json!(args.get("--head-sha").unwrap());
+            result["expected_head"] = json!(args.values.get("--head-sha"));
             if let Ok(number) = args.number() {
                 result["pr"] = json!(number);
             }
@@ -573,8 +642,8 @@ pub fn run(raw: &[OsString]) -> CliOutput {
 fn exit_code(result: &Value) -> u8 {
     match result["outcome"].as_str().unwrap_or("unknown") {
         "opened" | "existing" | "passed" => 0,
-        "failed" | "closed" => 1,
-        "pending" => 3,
+        "failed" | "closed" | "conflict" => 1,
+        "pending" | "changed" => 3,
         "stale" => 4,
         _ => 2,
     }

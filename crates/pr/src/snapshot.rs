@@ -10,8 +10,10 @@ pub(crate) const QUERY: &str = r#"query($owner:String!,$name:String!,$number:Int
   repository(owner:$owner,name:$name) {
     nameWithOwner
     pullRequest(number:$number) {
-      number url state headRefOid headRefName baseRefName isDraft
+      number url state headRefOid headRefName baseRefOid baseRefName mergeable isDraft
       headRepository { nameWithOwner }
+      baseRef { target { oid } }
+      headRef { target { oid } }
       mergeCommit { oid }
     }
     object(oid:$head) { ... on Commit {
@@ -70,6 +72,11 @@ pub(crate) struct Snapshot {
     pub url: String,
     pub head: String,
     pub branch: String,
+    pub head_repository: String,
+    pub base_oid: String,
+    pub mergeable: String,
+    pub pr_base_oid: String,
+    pub pr_head_oid: String,
     pub state: String,
     pub draft: bool,
     pub merge_commit: Option<String>,
@@ -87,11 +94,20 @@ pub(crate) fn pull_request(
 ) -> Result<Snapshot, String> {
     repository(value, repo)?;
     let pr = &value["data"]["repository"]["pullRequest"];
-    if pr["number"].as_u64() != Some(number)
-        || field(pr, "/baseRefName")? != base
-        || field(pr, "/headRepository/nameWithOwner")? != repo
-    {
+    if pr["number"].as_u64() != Some(number) || field(pr, "/baseRefName")? != base {
         return Err("PR number, base or head repository mismatch".into());
+    }
+    let head_repository = field(pr, "/headRepository/nameWithOwner")?;
+    if !head_repository
+        .split_once('/')
+        .is_some_and(|(owner, name)| !owner.is_empty() && !name.is_empty() && !name.contains('/'))
+    {
+        return Err("invalid PR head repository".into());
+    }
+    let base_oid = field(pr, "/baseRefOid")?;
+    let mergeable = field(pr, "/mergeable")?;
+    if !sha(base_oid) || !matches!(mergeable, "MERGEABLE" | "CONFLICTING" | "UNKNOWN") {
+        return Err("invalid PR base SHA or mergeability".into());
     }
     let observed = field(pr, "/headRefOid")?;
     if !verified_snapshot::valid_sha_text(observed) {
@@ -101,6 +117,18 @@ pub(crate) fn pull_request(
     if !verified_snapshot::valid_pr_state(state) {
         return Err("unknown PR state".into());
     }
+    // GitHub may keep baseRefOid at the PR's original base after the branch moves.
+    // The live refs identify the push; mergeable describes GitHub's current PR verdict.
+    let (live_base, live_head) = if state == "OPEN" {
+        let base = field(pr, "/baseRef/target/oid")?;
+        let head = field(pr, "/headRef/target/oid")?;
+        if !sha(base) || !sha(head) {
+            return Err("invalid live branch SHA".into());
+        }
+        (base, head)
+    } else {
+        (base_oid, observed)
+    };
     let url = field(pr, "/url")?;
     let expected_url = format!("https://github.com/{repo}/pull/{number}");
     if url != expected_url {
@@ -121,8 +149,13 @@ pub(crate) fn pull_request(
     Ok(Snapshot {
         number,
         url: url.into(),
-        head: observed.into(),
+        head: live_head.into(),
+        pr_head_oid: observed.into(),
+        pr_base_oid: base_oid.into(),
         branch: field(pr, "/headRefName")?.into(),
+        head_repository: head_repository.into(),
+        base_oid: live_base.into(),
+        mergeable: mergeable.into(),
         state: state.into(),
         merge_commit,
         draft: pr["isDraft"].as_bool().ok_or("invalid draft state")?,
@@ -147,6 +180,10 @@ pub(crate) fn evaluate_checks(
     }
     if verified_snapshot::pull_request_closed(state) {
         result.outcome = "closed";
+        return Ok(());
+    }
+    if verified_snapshot::open_conflict(state, &result.mergeable) {
+        result.outcome = "conflict";
         return Ok(());
     }
     let commit = &value["data"]["repository"]["object"];
@@ -303,6 +340,9 @@ pub(crate) fn evaluate_checks(
             failed,
             waiting,
         ));
+    if state == "OPEN" && result.mergeable == "UNKNOWN" && result.outcome == "passed" {
+        result.outcome = "unknown";
+    }
     Ok(())
 }
 

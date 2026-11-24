@@ -18,6 +18,17 @@ pub use client::{record_pr_observation, snapshot::pull_request_merged};
 
 verus! {
 
+/// A single watch call returns on a verified change, even while the run continues.
+pub fn push_watch_outcome(stale: bool, completed: bool, success: bool, changed: bool) -> (out: &'static str)
+    ensures out@ == (if stale { "stale"@ } else if completed {
+        if success { "passed"@ } else { "failed"@ }
+    } else if changed { "changed"@ } else { "pending"@ }),
+{
+    if stale { "stale" } else if completed {
+        if success { "passed" } else { "failed" }
+    } else if changed { "changed" } else { "pending" }
+}
+
 /// SQLite supplies signed Unix seconds for the observed creation time.
 pub fn reminder_deadline(created: i64) -> (deadline: Option<i64>)
     ensures match deadline {
@@ -201,6 +212,12 @@ pub fn pull_request_open(state: &str) -> (open: bool)
 
 /// GitHub can omit the associated PR list. The selected check suite then
 /// binds this completion to the original GitHub snapshot of the requested PR.
+pub fn open_conflict(state: &str, mergeable: &str) -> (conflict: bool)
+    ensures conflict == (state@ == "OPEN"@ && mergeable@ == "CONFLICTING"@),
+{
+    same_text(state, "OPEN") && same_text(mergeable, "CONFLICTING")
+}
+
 pub fn notification_belongs(no_associations: bool, matching_pr: bool, matching_suite: bool) -> (accepted: bool)
     ensures accepted == (if no_associations { matching_suite } else { matching_pr }),
 {
