@@ -35,6 +35,37 @@ fn push_run_change_and_terminal_priorities() {
     expect_snapshot_true(same_run_label(policy::push_watch_outcome(false,false,false,false), "pending"));
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn opening_requires_one_valid_candidate_or_an_empty_list() {
+    expect_snapshot_true(matches!(policy::open_candidate(0, None), Ok(policy::OpenCandidate::Create)));
+    expect_snapshot_true(matches!(policy::open_candidate(1, Some(1)), Ok(policy::OpenCandidate::Reuse(1))));
+    expect_snapshot_true(matches!(policy::open_candidate(1, Some(2147483647)), Ok(policy::OpenCandidate::Reuse(2147483647))));
+    expect_snapshot_true(matches!(policy::open_candidate(1, Some(0)), Err(_)));
+    expect_snapshot_true(matches!(policy::open_candidate(1, Some(2147483648)), Err(_)));
+    expect_snapshot_true(matches!(policy::open_candidate(1, None), Err(_)));
+    expect_snapshot_true(matches!(policy::open_candidate(2, Some(42)), Err(_)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn open_readback_checks_identity_before_preserving_a_stale_snapshot() {
+    proof {
+        reveal_strlit("a"); reveal_strlit("b");
+        reveal_strlit("passed"); reveal_strlit("closed"); reveal_strlit("stale");
+        reveal_strlit("OPEN"); reveal_strlit("MERGED");
+        assert("a"@[0] == 'a'); assert("b"@[0] == 'b');
+        assert("passed"@[0] == 'p'); assert("closed"@[0] == 'c');
+        assert("stale"@[0] == 's');
+        assert("OPEN"@.len() == 4); assert("MERGED"@.len() == 6);
+    }
+    expect_snapshot_true(matches!(policy::accept_open_readback("a","b","a","a","stale","MERGED",true,false), Err(_)));
+    expect_snapshot_true(matches!(policy::accept_open_readback("a","a","b","a","closed","MERGED",true,false), Err(_)));
+    expect_snapshot_true(matches!(policy::accept_open_readback("a","a","a","a","stale","OPEN",true,false), Ok(false)));
+    expect_snapshot_true(matches!(policy::accept_open_readback("a","a","a","a","closed","MERGED",true,false), Ok(false)));
+    expect_snapshot_true(matches!(policy::accept_open_readback("a","a","a","a","passed","MERGED",true,false), Err(_)));
+    expect_snapshot_true(matches!(policy::accept_open_readback("a","a","a","a","passed","OPEN",true,false), Err(_)));
+    expect_snapshot_true(matches!(policy::accept_open_readback("a","a","a","a","passed","OPEN",true,true), Ok(true)));
+}
+
 /// The same fixed workflow accepts progress in its own attempt or a later one.
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn reobserved_attempt_boundaries() {
