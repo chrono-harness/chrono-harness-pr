@@ -23,6 +23,16 @@ use vstd::vpanic as panic;
 verus! {
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn reminders_end_at_the_recorded_second() {
+    let deadline = policy::reminder_deadline(1_000);
+    expect_snapshot_true(matches!(deadline, Some(2_593_000)));
+    expect_snapshot_true(!policy::reminder_expired(2_593_000, 2_592_999));
+    expect_snapshot_true(policy::reminder_expired(2_593_000, 2_593_000));
+    expect_snapshot_true(policy::reminder_expired(2_593_000, 2_593_001));
+    expect_snapshot_true(matches!(policy::reminder_deadline(i64::MAX), None));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn snapshot_outcome_priority_is_proved() {
     let stale = policy::snapshot_outcome(true, true, true, true);
     let closed = policy::snapshot_outcome(false, true, true, true);

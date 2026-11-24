@@ -820,9 +820,21 @@ fn expired_reminders_are_removed_from_local_storage_without_a_remote_query() {
         json!({"prefix":["pr","create"],"stdout":"https://github.com/example/host/pull/42\n"}),
         api(snapshot()),
     ]);
+    let clock = rusqlite::Connection::open_in_memory().unwrap();
+    let now = || {
+        clock
+            .query_row("SELECT unixepoch()", [], |r| r.get::<_, i64>(0))
+            .unwrap()
+    };
+    let earliest = now();
     assert_eq!(h.run(&open_args()).0, 0);
+    let latest = now();
     let db = rusqlite::Connection::open(h.root.path().join(".chrono-harness/pr-reminders.sqlite3"))
         .unwrap();
+    let deadline: i64 = db
+        .query_row("SELECT expires FROM reminder", [], |r| r.get(0))
+        .unwrap();
+    assert!((earliest..=latest).contains(&(deadline - 2_592_000)));
     db.execute("UPDATE reminder SET expires=unixepoch()", [])
         .unwrap();
     assert!(reminders(&h).is_empty());
