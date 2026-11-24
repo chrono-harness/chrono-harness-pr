@@ -84,6 +84,79 @@ pub fn same_workflow_attempt(first_id: u64, id: u64, first_head: &str, head: &st
     id == first_id && same_text(head, first_head) && same_text(branch, first_branch) && attempt >= first_attempt
 }
 
+/// GitHub GraphQL expects a positive signed 32-bit PR number.
+pub fn valid_pr_number(number: u64) -> (valid: bool)
+    ensures valid == (1 <= number <= 2147483647),
+{
+    number > 0 && number <= i32::MAX as u64
+}
+
+pub enum OpenCandidate {
+    Create,
+    Reuse(u64),
+}
+
+pub fn open_candidate(count: usize, first_number: Option<u64>)
+    -> (choice: Result<OpenCandidate, &'static str>)
+    ensures
+        match choice {
+            Ok(OpenCandidate::Create) => count == 0,
+            Ok(OpenCandidate::Reuse(n)) => count == 1 && first_number == Some(n) && 1 <= n <= 2147483647,
+            Err(error) => if count > 1 {
+                error@ == "ambiguous existing PRs; no creation attempted"@
+            } else {
+                count == 1 && !(exists|n: u64| first_number == Some(n) && 1 <= n <= 2147483647)
+                    && error@ == "invalid existing PR number"@
+            },
+        },
+{
+    if count == 0 {
+        Ok(OpenCandidate::Create)
+    } else if count > 1 {
+        Err("ambiguous existing PRs; no creation attempted")
+    } else {
+        match first_number {
+            Some(number) if valid_pr_number(number) => Ok(OpenCandidate::Reuse(number)),
+            _ => Err("invalid existing PR number"),
+        }
+    }
+}
+
+/// True publishes opened/existing. False preserves the terminal or stale snapshot.
+pub fn accept_open_readback(branch: &str, requested_branch: &str, repo: &str, requested_repo: &str,
+    outcome: &str, state: &str, requested_draft: bool, draft: bool)
+    -> (decision: Result<bool, &'static str>)
+    ensures
+        match decision {
+            Ok(accept) => branch@ == requested_branch@ && repo@ == requested_repo@ &&
+                if outcome@ == "stale"@ || outcome@ == "closed"@ { !accept }
+                else { accept && state@ == "OPEN"@ && (!requested_draft || draft) },
+            Err(message) => if branch@ != requested_branch@ || repo@ != requested_repo@ {
+                message@ == "PR head branch mismatch"@
+            } else {
+                outcome@ != "stale"@ && outcome@ != "closed"@ &&
+                if state@ != "OPEN"@ {
+                    message@ == "PR merged during open; creation result is no longer open"@
+                } else {
+                    requested_draft && !draft &&
+                    message@ == "requested draft state not present; existing PR was preserved"@
+                }
+            },
+        },
+{
+    if !same_text(branch, requested_branch) || !same_text(repo, requested_repo) {
+        Err("PR head branch mismatch")
+    } else if same_text(outcome, "stale") || same_text(outcome, "closed") {
+        Ok(false)
+    } else if !pull_request_open(state) {
+        Err("PR merged during open; creation result is no longer open")
+    } else if requested_draft && !draft {
+        Err("requested draft state not present; existing PR was preserved")
+    } else {
+        Ok(true)
+    }
+}
+
 /// An already failed or conflicting PR takes precedence over base movement.
 pub fn report_base_change(state: &str, previous_head: &str, next_head: &str,
     previous_base: &str, next_base: &str, outcome: &str) -> (changed: bool)

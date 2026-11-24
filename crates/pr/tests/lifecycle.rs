@@ -729,6 +729,102 @@ fn ambiguous_creation_failures_and_changed_readback_keep_identity() {
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn invalid_or_ambiguous_existing_candidates_stop_before_creation() {
+    for (items, error) in [
+        (
+            json!([{"number":42},{"number":42}]),
+            "ambiguous existing PRs; no creation attempted",
+        ),
+        (json!([{"number":0}]), "invalid existing PR number"),
+        (
+            json!([{"number":2147483648_u64}]),
+            "invalid existing PR number",
+        ),
+        (json!([{"number":"42"}]), "invalid existing PR number"),
+    ] {
+        let h = Host::new(vec![resolve(), list(items)]);
+        let (code, result) = h.run(&open_args());
+        assert_eq!((code, result["error"].as_str()), (2, Some(error)));
+        assert_eq!(h.calls().len(), 2);
+        assert!(reminders(&h).is_empty());
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn create_receipt_binds_repository_and_a_decimal_graphql_number() {
+    for url in [
+        "https://github.com/example/fork/pull/42",
+        "https://github.com/example/host/pull/0",
+        "https://github.com/example/host/pull/2147483648",
+        "https://github.com/example/host/pull/+42",
+        "https://github.com/example/host/pull/42?query",
+        "https://github.com/example/host/pull/",
+    ] {
+        let h = Host::new(vec![
+            resolve(),
+            list(json!([])),
+            json!({"prefix":["pr","create"],"stdout":url}),
+        ]);
+        let (code, result) = h.run(&open_args());
+        assert_eq!(code, 2, "{url} {result}");
+        assert_eq!(
+            result["error"],
+            "creation returned an invalid PR URL; query existing PR before retrying"
+        );
+        assert_eq!(h.calls().len(), 3);
+        assert!(reminders(&h).is_empty());
+    }
+    let h = Host::new(vec![
+        resolve(),
+        list(json!([])),
+        json!({"prefix":["pr","create"],"stdout":"https://github.com/example/host/pull/00042"}),
+        api(snapshot()),
+    ]);
+    let (code, result) = h.run(&open_args());
+    assert_eq!(code, 0, "{result}");
+    assert_eq!(result["pr"], 42);
+    assert_eq!(reminders(&h).len(), 1);
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn open_readback_preserves_closed_and_rejects_missing_requested_draft() {
+    let mut args = open_args();
+    args.push("--draft");
+    for (state, code, outcome, error) in [
+        ("CLOSED", 1, "closed", None),
+        (
+            "OPEN",
+            2,
+            "unknown",
+            Some("requested draft state not present; existing PR was preserved"),
+        ),
+        (
+            "MERGED",
+            2,
+            "unknown",
+            Some("PR merged during open; creation result is no longer open"),
+        ),
+    ] {
+        let mut body = snapshot();
+        let pr = &mut body["data"]["repository"]["pullRequest"];
+        pr["state"] = json!(state);
+        if state == "MERGED" {
+            pr["mergeCommit"] = json!({"oid":OTHER});
+        }
+        let h = Host::new(vec![resolve(), list(json!([{"number":42}])), api(body)]);
+        let (actual, result) = h.run(&args);
+        assert_eq!(actual, code, "{result}");
+        assert_eq!(result["outcome"], outcome);
+        assert_eq!(result["error"].as_str(), error);
+        assert_eq!(h.calls().len(), 3);
+        assert!(reminders(&h).is_empty());
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn invalid_arguments_and_config_do_no_remote_work() {
     for args in [
         vec!["pr-status", "--pr", "0", "--head-sha", HEAD],

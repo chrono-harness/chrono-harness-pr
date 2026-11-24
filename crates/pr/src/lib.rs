@@ -189,16 +189,18 @@ impl Args {
             .ok_or_else(|| "invalid run ID".into())
     }
     fn number(&self) -> Result<u64, String> {
-        let value = self.get("--pr")?;
-        if !value.bytes().all(|b| b.is_ascii_digit()) {
-            return Err("invalid PR number".into());
-        }
-        value
-            .parse::<u64>()
-            .ok()
-            .filter(|n| *n > 0 && *n <= i32::MAX as u64)
-            .ok_or("invalid PR number".into())
+        parse_pr_number(self.get("--pr")?).ok_or_else(|| "invalid PR number".into())
     }
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn parse_pr_number(text: &str) -> Option<u64> {
+    if !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    text.parse::<u64>()
+        .ok()
+        .filter(|number| verified_snapshot::valid_pr_number(*number))
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -450,7 +452,7 @@ impl Client {
             return Err("invalid remote branch SHA".into());
         }
         self.result["observed_head"] = json!(observed);
-        if observed != head {
+        if !verified_snapshot::same_text(observed, head) {
             self.result["outcome"] = json!("stale");
             return Ok(());
         }
@@ -472,8 +474,10 @@ impl Client {
             &[],
         )?;
         let items = list.as_array().ok_or("invalid PR list")?;
-        let (number, outcome) = match items.as_slice() {
-            [] => {
+        let first_number = items.first().and_then(|item| item["number"].as_u64());
+        let (number, outcome) = match verified_snapshot::open_candidate(items.len(), first_number)?
+        {
+            verified_snapshot::OpenCandidate::Create => {
                 let mut argv = vec![
                     "pr".into(),
                     "create".into(),
@@ -494,41 +498,28 @@ impl Client {
                 let created = self.call(argv, &body)?;
                 let url = created.as_str().ok_or("invalid create response")?.trim();
                 let prefix = format!("https://github.com/{}/pull/", self.config.repository);
-                let number = url
-                    .strip_prefix(&prefix)
-                    .filter(|s| s.bytes().all(|b| b.is_ascii_digit()))
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .filter(|n| *n > 0 && *n <= i32::MAX as u64)
-                    .ok_or(
-                        "creation returned an invalid PR URL; query existing PR before retrying",
-                    )?;
+                let number = url.strip_prefix(&prefix).and_then(parse_pr_number).ok_or(
+                    "creation returned an invalid PR URL; query existing PR before retrying",
+                )?;
                 self.update_reminder(number, Some(head));
                 (number, "opened")
             }
-            [item] => (
-                item["number"]
-                    .as_u64()
-                    .filter(|n| *n > 0 && *n <= i32::MAX as u64)
-                    .ok_or("invalid existing PR number")?,
-                "existing",
-            ),
-            _ => return Err("ambiguous existing PRs; no creation attempted".into()),
+            verified_snapshot::OpenCandidate::Reuse(number) => (number, "existing"),
         };
         self.result["pr"] = json!(number);
         let parsed = self.snapshot(number, head)?;
-        if parsed.branch != branch || parsed.head_repository != self.config.repository {
-            return Err("PR head branch mismatch".into());
+        if verified_snapshot::accept_open_readback(
+            &parsed.branch,
+            branch,
+            &parsed.head_repository,
+            &self.config.repository,
+            &parsed.outcome,
+            &parsed.state,
+            args.draft,
+            parsed.draft,
+        )? {
+            self.result["outcome"] = json!(outcome);
         }
-        if parsed.outcome == "stale" || parsed.outcome == "closed" {
-            return Ok(());
-        }
-        if !verified_snapshot::pull_request_open(&parsed.state) {
-            return Err("PR merged during open; creation result is no longer open".into());
-        }
-        if args.draft && !parsed.draft {
-            return Err("requested draft state not present; existing PR was preserved".into());
-        }
-        self.result["outcome"] = json!(outcome);
         Ok(())
     }
 
