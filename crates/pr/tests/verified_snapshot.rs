@@ -22,6 +22,19 @@ use vstd::vpanic as panic;
 
 verus! {
 
+fn same_run_label(actual: &str, expected: &str) -> (equal: bool)
+    ensures equal == (actual@ == expected@),
+{ actual.to_string() == expected.to_string() }
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn push_run_change_and_terminal_priorities() {
+    expect_snapshot_true(same_run_label(policy::push_watch_outcome(true,true,true,true), "stale"));
+    expect_snapshot_true(same_run_label(policy::push_watch_outcome(false,true,true,true), "passed"));
+    expect_snapshot_true(same_run_label(policy::push_watch_outcome(false,true,false,true), "failed"));
+    expect_snapshot_true(same_run_label(policy::push_watch_outcome(false,false,false,true), "changed"));
+    expect_snapshot_true(same_run_label(policy::push_watch_outcome(false,false,false,false), "pending"));
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn reminders_end_at_the_recorded_second() {
     let deadline = policy::reminder_deadline(1_000);

@@ -191,7 +191,12 @@ impl Host {
             String::from_utf8_lossy(&output.stderr)
         );
         let result: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(result["schema"], "chrono-pr-result/v3");
+        let schema = if args.first() == Some(&"run-watch") {
+            "chrono-run-result/v1"
+        } else {
+            "chrono-pr-result/v3"
+        };
+        assert_eq!(result["schema"], schema);
         (output.status.code().unwrap(), result)
     }
     fn watch(&self, event: &Value) -> (i32, Value) {
@@ -874,4 +879,110 @@ fn expired_reminders_release_pages_in_existing_database_and_keep_live_rows() {
         .pragma_query_value(None, "freelist_count", |row| row.get(0))
         .unwrap();
     assert_eq!(free, 0);
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn push_run() -> Value {
+    serde_json::from_str(include_str!("fixtures/push_run.json")).unwrap()
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn run_view(value: &Value) -> Value {
+    json!({"prefix":["run","view"],"stdout":value.to_string()})
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn push_run_returns_verified_progress_and_ignores_unrelated_or_duplicate_events() {
+    let initial = push_run();
+    let mut progressed = initial.clone();
+    progressed["jobs"][0]["status"] = json!("in_progress");
+    let host = Host::new(vec![
+        run_view(&initial),
+        run_view(&initial),
+        run_view(&progressed),
+    ]);
+    let job = json!({"action":"in_progress","repository":{"full_name":"example/host"},
+        "workflow_job":{"run_id":857,"head_sha":initial["headSha"],"id":912,"run_attempt":1}});
+    let mut other = job.clone();
+    other["workflow_job"]["run_id"] = json!(205);
+    let mut frames = Vec::new();
+    for event in [&other, &job, &job] {
+        writeln!(frames, "{event}").unwrap();
+    }
+    let (exit, result) = host.run_with_input(&["run-watch", "--run", "857"], &frames, false);
+    assert_eq!(exit, 3, "{result}");
+    assert_eq!(result["outcome"], "changed");
+    assert_eq!(result["event_queries"], 2);
+    assert_eq!(result["run"]["jobs"][0]["status"], "in_progress");
+    let receipts = result["receipts"].as_array().unwrap();
+    assert_eq!(receipts.len(), 2);
+    let args = receipts[0]["argv"].as_array().unwrap();
+    assert_eq!(
+        args[1..7],
+        [
+            json!("run"),
+            json!("view"),
+            json!("857"),
+            json!("--repo"),
+            json!("example/host"),
+            json!("--json")
+        ]
+    );
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn push_run_checks_terminal_outcomes_commit_attempt_and_channel() {
+    let initial = push_run();
+    for (conclusion, exit) in [
+        ("success", 0),
+        ("failure", 1),
+        ("cancelled", 1),
+        ("timed_out", 1),
+        ("unexpected", 2),
+    ] {
+        let mut ended = initial.clone();
+        ended["status"] = json!("completed");
+        ended["conclusion"] = json!(conclusion);
+        let host = Host::new(vec![run_view(&ended)]);
+        let (actual, result) = host.run(&["run-watch", "--run", "857"]);
+        assert_eq!(actual, exit, "{result}");
+        assert_eq!(result["receipts"].as_array().unwrap().len(), 1);
+    }
+    let stale = Host::new(vec![run_view(&initial)]).run(&[
+        "run-watch",
+        "--run",
+        "857",
+        "--head-sha",
+        "2222222222222222222222222222222222222222",
+    ]);
+    assert_eq!(stale.0, 4);
+    let host = Host::new(vec![run_view(&initial)]);
+    assert_eq!(host.run(&["run-watch", "--run", "857"]).0, 2);
+    let mut retry = initial.clone();
+    retry["attempt"] = json!(2);
+    let run_event = json!({"action":"requested","repository":{"full_name":"example/host"},
+        "workflow_run":{"event":"push","id":857,"run_attempt":2,"head_sha":initial["headSha"]}});
+    let host = Host::new(vec![run_view(&initial), run_view(&retry)]);
+    let (exit, result) = host.run_with_input(
+        &["run-watch", "--run", "857"],
+        format!("{run_event}\n").as_bytes(),
+        false,
+    );
+    assert_eq!(exit, 3, "{result}");
+    assert_eq!(result["run"]["attempt"], 2);
+    for (key, wrong) in [
+        ("event", json!("pull_request")),
+        ("databaseId", json!(3)),
+        (
+            "url",
+            json!("https://github.com/example/other/actions/runs/857"),
+        ),
+    ] {
+        let mut invalid = initial.clone();
+        invalid[key] = wrong;
+        let host = Host::new(vec![run_view(&invalid)]);
+        assert_eq!(host.run(&["run-watch", "--run", "857"]).0, 2);
+    }
 }

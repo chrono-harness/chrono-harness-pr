@@ -18,6 +18,17 @@ pub use client::{record_pr_observation, snapshot::pull_request_merged};
 
 verus! {
 
+/// A single watch call returns on a verified change, even while the run continues.
+pub fn push_watch_outcome(stale: bool, completed: bool, success: bool, changed: bool) -> (out: &'static str)
+    ensures out@ == (if stale { "stale"@ } else if completed {
+        if success { "passed"@ } else { "failed"@ }
+    } else if changed { "changed"@ } else { "pending"@ }),
+{
+    if stale { "stale" } else if completed {
+        if success { "passed" } else { "failed" }
+    } else if changed { "changed" } else { "pending" }
+}
+
 /// SQLite supplies signed Unix seconds for the observed creation time.
 pub fn reminder_deadline(created: i64) -> (deadline: Option<i64>)
     ensures match deadline {

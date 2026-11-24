@@ -38,6 +38,18 @@ chrono-pr pr-watch --pr 42 --head-sha "$head_sha" < completion.jsonl
 
 旧预览版 v0.1.0-alpha.1 使用 v2 配置与操作账本。升级时将配置改为 v3，删除 `state_directory`、`state_producer`，重新查询指定 PR。旧预览版及其原校验文件仍可从对应标签取得。
 
+### 等待 push 的 CI 进展
+
+用 GitHub Actions 运行页面中的数字 ID 启动一次等待。可用 `--head-sha SHA` 同时核对这次 push 的提交。
+
+```sh
+chrono-pr run-watch --run 857 --head-sha "$head_sha" < github-events.jsonl
+```
+
+调用方先接入已有的 GitHub 通知流，以每行一个原始 JSON 正文向 stdin 送入 `workflow_run` 和 `workflow_job` 事件。客户端先读取指定 push run。已经完成时直接返回，进行中时阻塞，收到同仓同 run 的事件后回读 GitHub。当前 attempt、运行状态、作业或步骤的观察发生变化即返回。无关、重复且未造成新观察的事件继续等待。GitHub 提供作业级通知，步骤进展在这些通知触发回读时可见。
+
+输出 `chrono-run-result/v1` 包含 run ID、提交、attempt、作业、步骤及原始查询回执。`changed`（3）表示本次等待已经取得进展，CI 可以仍在运行；需要下一次变化时，用同一 run ID 再次调用并连接仍在接收事件的通道。`passed`（0）与 `failed`（1）给出 CI 的终态，`stale`（4）表示所给 SHA 不同。通道丢失或期限届满返回 `unknown`（2）。
+
 每次调用为 gh 建立专属进程组。启动器退出后，macOS 通过 kqueue、Linux 通过 pidfd 等候组内仍在工作的成员，包括已关闭标准流的成员。收到退出事件后重新核对组内成员，调用超时会取消原进程组。无法确认进程组已经结束时，该次请求返回 unknown。
 
 ## 构建、测试与证明
