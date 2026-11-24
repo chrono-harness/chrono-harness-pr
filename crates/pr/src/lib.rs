@@ -3,6 +3,8 @@
 #[cfg(not(verus_keep_ghost))]
 mod gh_process;
 #[cfg(not(verus_keep_ghost))]
+mod notification;
+#[cfg(not(verus_keep_ghost))]
 mod reminders;
 #[path = "snapshot.rs"]
 pub(crate) mod snapshot;
@@ -43,7 +45,7 @@ struct Config {
     required_checks: Vec<String>,
     api_timeout_seconds: u64,
     watch_timeout_seconds: u64,
-    watch_interval_seconds: u64,
+    watch_interval_seconds: Option<u64>,
     output_limit_bytes: usize,
 }
 
@@ -79,10 +81,12 @@ impl Config {
                 != self.required_checks.len()
             || !(1..=3600).contains(&self.api_timeout_seconds)
             || !(1..=86400).contains(&self.watch_timeout_seconds)
-            || !(60..=3600).contains(&self.watch_interval_seconds)
+            || self
+                .watch_interval_seconds
+                .is_some_and(|interval| !(60..=3600).contains(&interval))
             || !(4096..=16777216).contains(&self.output_limit_bytes)
         {
-            return Err("invalid PR config: branch, tool, checks or resource bounds (watch interval >=60 seconds)".into());
+            return Err("invalid PR config: branch, tool, checks or resource bounds".into());
         }
         Ok(())
     }
@@ -217,7 +221,6 @@ struct Client {
     env: BTreeMap<String, String>,
     started: Instant,
     budget: Duration,
-    pending_deadline: bool,
     result: Value,
 }
 
@@ -288,7 +291,6 @@ impl Client {
             env,
             started: Instant::now(),
             budget,
-            pending_deadline: false,
             result,
         };
         if let Err(err) = reminders::expire(&client.root) {
@@ -299,22 +301,12 @@ impl Client {
         Ok(client)
     }
 
-    fn call(
-        &mut self,
-        argv: Vec<String>,
-        input: &[u8],
-        wait: bool,
-    ) -> Result<(u32, Value), String> {
+    fn call(&mut self, argv: Vec<String>, input: &[u8]) -> Result<Value, String> {
         let remaining = self.budget.saturating_sub(self.started.elapsed());
         if remaining.is_zero() {
-            self.pending_deadline = self.result["outcome"] == "pending";
             return Err("operation deadline reached; remote result remains unverified".into());
         }
-        let timeout = if wait {
-            remaining
-        } else {
-            remaining.min(Duration::from_secs(self.config.api_timeout_seconds))
-        };
+        let timeout = remaining.min(Duration::from_secs(self.config.api_timeout_seconds));
         let process = gh_process::run(
             &self.root,
             Path::new(&self.executable),
@@ -331,10 +323,9 @@ impl Client {
             .collect::<Vec<_>>();
         self.result["receipts"].as_array_mut().unwrap().push(json!({
             "argv":argv, "child_pid":process.child_pid, "exit_code":process.exit_code,"exit_signal":process.signal,
-            "failure":process.failure, "stdout_bytes":process.stdout,"stderr_bytes":process.stderr
+            "timed_out":process.timed_out,"failure":process.failure, "stdout_bytes":process.stdout,"stderr_bytes":process.stderr
         }));
         if let Some(failure) = process.failure {
-            self.pending_deadline = wait && process.timed_out;
             return Err(failure);
         }
         let code = process.exit_code.ok_or_else(|| match process.signal {
@@ -345,9 +336,6 @@ impl Client {
                 "GitHub command ended without an exit code or signal; see original receipt".into()
             }
         })?;
-        if wait {
-            return Ok((code, Value::Null));
-        }
         if code != 0 {
             return Err(format!(
                 "GitHub command exited {code}; see original receipt"
@@ -358,7 +346,7 @@ impl Client {
         } else {
             snapshot::response(&process.stdout)?
         };
-        Ok((code, value))
+        Ok(value)
     }
 
     fn update_reminder(&mut self, number: u64, head: Option<&str>) {
@@ -387,7 +375,7 @@ impl Client {
             });
             argv.push(format!("{key}={value}"));
         }
-        self.call(argv, &[], false).map(|(_, v)| v)
+        self.call(argv, &[])
     }
 
     fn snapshot(&mut self, number: u64, head: &str) -> Result<snapshot::Snapshot, String> {
@@ -439,7 +427,7 @@ impl Client {
             self.result["outcome"] = json!("stale");
             return Ok(());
         }
-        let (_, list) = self.call(
+        let list = self.call(
             vec![
                 "pr".into(),
                 "list".into(),
@@ -455,7 +443,6 @@ impl Client {
                 "number".into(),
             ],
             &[],
-            false,
         )?;
         let items = list.as_array().ok_or("invalid PR list")?;
         let (number, outcome) = match items.as_slice() {
@@ -477,7 +464,7 @@ impl Client {
                 if args.draft {
                     argv.push("--draft".into());
                 }
-                let (_, created) = self.call(argv, &body, false)?;
+                let created = self.call(argv, &body)?;
                 let url = created.as_str().ok_or("invalid create response")?.trim();
                 let prefix = format!("https://github.com/{}/pull/", self.config.repository);
                 let number = url
@@ -528,36 +515,14 @@ impl Client {
         if args.command == "pr-status" || snapshot.outcome != "pending" {
             return Ok(());
         }
-        // One native blocking channel owns all remote waiting. No harness polling.
-        let wait = self.call(
-            vec![
-                "pr".into(),
-                "checks".into(),
-                number.to_string(),
-                "--repo".into(),
-                self.config.repository.clone(),
-                "--watch".into(),
-                "--interval".into(),
-                self.config.watch_interval_seconds.to_string(),
-            ],
-            &[],
-            true,
-        );
-        let (code, _) = match wait {
-            Ok(result) => result,
-            Err(error) => {
-                if self.result["outcome"] != "pending" {
-                    self.result["outcome"] = json!("unknown");
-                }
-                return Err(error);
-            }
-        };
-        // Transport/auth failures are unknown; ordinary check failure (1) and
-        // still pending (8) still permit one factual readback.
-        if ![0, 1, 8].contains(&code) {
-            self.result["outcome"] = json!("unknown");
-            return Err(format!("native wait exited {code}; see original receipt"));
-        }
+        self.result["notification"] = notification::wait(
+            &self.config.repository,
+            number,
+            head,
+            &snapshot.required_suite_ids,
+            self.started + self.budget,
+            self.config.output_limit_bytes,
+        )?;
         self.snapshot(number, head)?;
         Ok(())
     }
@@ -587,11 +552,7 @@ pub fn run(raw: &[OsString]) -> CliOutput {
                 Err(error) => result["error"] = json!(error),
                 Ok(mut client) => {
                     if let Err(error) = client.execute(&args) {
-                        // Only an actual watch deadline retains pending. All
-                        // other errors invalidate an earlier snapshot outcome.
-                        if !client.pending_deadline {
-                            client.result["outcome"] = json!("unknown");
-                        }
+                        client.result["outcome"] = json!("unknown");
                         client.result["error"] = json!(error);
                     }
                     result = client.result;

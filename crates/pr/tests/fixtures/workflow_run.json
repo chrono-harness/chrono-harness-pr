@@ -1,0 +1,20 @@
+{
+  "repository": {
+    "full_name": "example/host"
+  },
+  "action": "completed",
+  "workflow_run": {
+    "event": "pull_request",
+    "status": "completed",
+    "id": 857,
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pull_requests": [
+      {
+        "number": 42,
+        "head": {
+          "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    ]
+  }
+}

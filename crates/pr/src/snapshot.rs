@@ -74,6 +74,7 @@ pub(crate) struct Snapshot {
     pub draft: bool,
     pub merge_commit: Option<String>,
     pub checks: Vec<Value>,
+    pub required_suite_ids: BTreeSet<u64>,
     pub outcome: &'static str,
 }
 
@@ -126,6 +127,7 @@ pub(crate) fn pull_request(
         merge_commit,
         draft: pr["isDraft"].as_bool().ok_or("invalid draft state")?,
         checks: vec![],
+        required_suite_ids: BTreeSet::new(),
         outcome: "pending",
     })
 }
@@ -290,6 +292,10 @@ pub(crate) fn evaluate_checks(
         }
         result.checks.push(json!({"name":name,"state":state}));
     }
+    result.required_suite_ids = required_suites
+        .into_values()
+        .flat_map(|(_, ids)| ids)
+        .collect();
     result.outcome =
         verified_snapshot::snapshot_outcome_label(verified_snapshot::snapshot_outcome(
             verified_snapshot::observed_head_is_stale(observed, head),
