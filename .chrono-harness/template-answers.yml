@@ -29,4 +29,6 @@ required_check: check
 
 
 manage_roadmap: true
-publisher_workflow: "Release chrono-pr"
+publisher_workflow: Release
+
+release_plan: {"kind": "binary", "version": "0.1.3", "binary": "chrono-pr", "consumer": {"repository": "chrono-harness/chrono-harness-example", "branch": "dev", "workflow": "pr-adoption.yml", "pin": ".config/mise/conf.d/chrono-harness.toml", "jobs": ["macos-aarch64", "linux-x86_64"], "step": "Read the landed pull request with the installed release"}, "build": ".chrono-harness/build-release.sh", "check": {"name": "check", "file": "check.yml"}}
