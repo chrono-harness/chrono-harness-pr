@@ -789,3 +789,33 @@ fn expired_reminders_are_removed_from_local_storage_without_a_remote_query() {
     );
     assert_eq!(h.calls().len(), 4);
 }
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn expired_reminders_release_pages_in_existing_database_and_keep_live_rows() {
+    let h = Host::new(vec![]);
+    let path = h.root.path().join(".chrono-harness/pr-reminders.sqlite3");
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch(
+        "PRAGMA auto_vacuum=NONE;
+         CREATE TABLE reminder(
+           repository TEXT NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL,
+           expires INTEGER NOT NULL, PRIMARY KEY(repository,number)
+         ) WITHOUT ROWID;
+         WITH RECURSIVE ids(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM ids WHERE n<3000)
+         INSERT INTO reminder SELECT 'example/host', n, hex(zeroblob(20)), unixepoch()-1 FROM ids;
+         INSERT INTO reminder VALUES ('example/host',4000,hex(zeroblob(20)),unixepoch()+3600);",
+    )
+    .unwrap();
+    drop(db);
+    let before = path.metadata().unwrap().len();
+    let live = reminders(&h);
+    assert_eq!(live.len(), 1);
+    assert_eq!(live[0]["pr"], 4000);
+    assert!(path.metadata().unwrap().len() < before / 2);
+    let db = rusqlite::Connection::open(path).unwrap();
+    let free: i64 = db
+        .pragma_query_value(None, "freelist_count", |row| row.get(0))
+        .unwrap();
+    assert_eq!(free, 0);
+}
