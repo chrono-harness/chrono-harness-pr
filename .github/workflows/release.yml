@@ -28,6 +28,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Install the release verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          directory=$(mktemp -d "$RUNNER_TEMP/release-tool.XXXXXXXX")
+          curl --fail --silent --show-error --location "https://github.com/chrono-harness/chrono-harness-host-release/releases/download/v0.1.0-alpha.14/chrono-host-release-linux-x86_64" -o "$directory/chrono-host-release"
+          (cd "$directory" && echo "b07a293f265e6c90cb1d0eb8b91016f1126dd4b2301b2e97239f06a5b00d009e  chrono-host-release" | sha256sum --check --status)
+          chmod 755 "$directory/chrono-host-release"
+          echo "$directory" >> "$GITHUB_PATH"
+
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
@@ -121,6 +131,16 @@ jobs:
           path: ${{ runner.temp }}/dist
           artifact-ids: ${{ fromJSON(needs.build.outputs.linux).id }},${{ fromJSON(needs.build.outputs.macos).id }}
           merge-multiple: true
+      - name: Install the release verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          directory=$(mktemp -d "$RUNNER_TEMP/release-tool.XXXXXXXX")
+          curl --fail --silent --show-error --location "https://github.com/chrono-harness/chrono-harness-host-release/releases/download/v0.1.0-alpha.14/chrono-host-release-linux-x86_64" -o "$directory/chrono-host-release"
+          (cd "$directory" && echo "b07a293f265e6c90cb1d0eb8b91016f1126dd4b2301b2e97239f06a5b00d009e  chrono-host-release" | sha256sum --check --status)
+          chmod 755 "$directory/chrono-host-release"
+          echo "$directory" >> "$GITHUB_PATH"
+
       - name: Verify and publish the selected release
         env:
           GH_TOKEN: ${{ github.token }}
