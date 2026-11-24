@@ -17,3 +17,9 @@ jobs:
           cache: false
           install_args: http:verus
       - run: VERUS="$(mise which verus)" ./check.sh
+  linux-process-group:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Exercise gh process groups with native Linux pidfds
+        run: cargo test --locked --features test-gh --manifest-path crates/pr/Cargo.toml --test lifecycle quiet_descendant

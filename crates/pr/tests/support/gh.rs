@@ -3,6 +3,11 @@ use std::{fs, io::Read};
 
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
+    if args.first().map(String::as_str) == Some("late-marker") {
+        std::thread::sleep(std::time::Duration::from_millis(args[1].parse().unwrap()));
+        fs::write("child-finished", b"done").unwrap();
+        return;
+    }
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input).unwrap();
     let steps: Vec<Value> = serde_json::from_slice(&fs::read("steps.json").unwrap()).unwrap();
@@ -34,6 +39,17 @@ fn main() {
     eprint!("{}", step["stderr"].as_str().unwrap_or(""));
     std::io::stdout().flush().unwrap();
     std::io::stderr().flush().unwrap();
+    if let Some(delay) = step["quiet_descendant_ms"].as_u64() {
+        use std::process::{Command, Stdio};
+        let _child = Command::new(std::env::current_exe().unwrap())
+            .arg("late-marker")
+            .arg(delay.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+    }
     if let Some(ms) = step["sleep_ms"].as_u64() {
         std::thread::sleep(std::time::Duration::from_millis(ms));
     }

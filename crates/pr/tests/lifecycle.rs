@@ -421,6 +421,41 @@ fn draft_creation_is_explicit_and_readback_failure_preserves_the_pr_number() {
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn quiet_descendant_finishes_before_query_result() {
+    let mut step = api(snapshot());
+    step["quiet_descendant_ms"] = json!(300);
+    let host = Host::new(vec![step]);
+    let (code, result) = host.status();
+    assert_eq!(code, 0, "{result}");
+    let marker = fs::read(host.root.path().join("child-finished"));
+    assert_eq!(marker.unwrap(), b"done");
+    assert_eq!(host.calls().len(), 1);
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn quiet_descendant_exceeding_the_deadline_keeps_the_launchers_actual_exit() {
+    let mut step = api(snapshot());
+    step["quiet_descendant_ms"] = json!(10_000);
+    let host = Host::new(vec![step]);
+    let path = host.root.path().join(".chrono-harness/pr.json");
+    let mut config: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    config["api_timeout_seconds"] = json!(1);
+    fs::write(path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let (code, result) = host.status();
+    assert_eq!(code, 2, "{result}");
+    let receipt = &result["receipts"][0];
+    assert_eq!(receipt["timed_out"], true);
+    assert_eq!(receipt["exit_code"], 0);
+    assert_eq!(
+        receipt["stdout_bytes"],
+        json!(snapshot().to_string().as_bytes())
+    );
+    assert_eq!(host.calls().len(), 1);
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn signal_keeps_the_original_streams_and_has_no_exit_code() {
     let host = Host::new(vec![json!({
         "prefix": ["api", "graphql"], "stdout": "partial", "stderr": "closed", "signal": "TERM"
