@@ -422,6 +422,8 @@ impl Client {
             self.result["pr_state"] = json!(parsed.state);
             self.result["head_repository"] = json!(parsed.head_repository);
             self.result["observed_base"] = json!(parsed.base_oid);
+            self.result["pr_base_oid"] = json!(parsed.pr_base_oid);
+            self.result["pr_head_oid"] = json!(parsed.pr_head_oid);
             self.result["mergeable"] = json!(parsed.mergeable);
             self.result["merge_commit"] = json!(parsed.merge_commit);
             self.result["draft"] = json!(parsed.draft);
