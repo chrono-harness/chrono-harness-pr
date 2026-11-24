@@ -1,3 +1,5 @@
+mod group;
+
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::Path;
@@ -72,15 +74,21 @@ pub(crate) fn run(
         job.communicate()?
             .limit_time(timeout.saturating_sub(started.elapsed()))
             .read_to(&mut stdout, &mut stderr)?;
-        job.wait_timeout(timeout.saturating_sub(started.elapsed()))?
-            .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "gh timed out"))
+        group::wait(job.pid(), started + timeout)?;
+        job.wait()
     })();
     let (status, failure, timed_out) = match result {
-        Ok(status) => (Some(status), None, false),
+        Ok(status) => (
+            Some(status),
+            group::verify_empty(job.pid())
+                .err()
+                .map(|error| error.to_string()),
+            false,
+        ),
         Err(error) => {
             let timed_out = error.kind() == io::ErrorKind::TimedOut;
-            // Kill the group created for this invocation and reap the direct
-            // child before handing the caller its terminal observation.
+            // The direct child is still unreaped, so cancellation can only
+            // signal the original process group.
             job.send_signal_group(libc::SIGKILL)?;
             (
                 Some(job.wait()?),

@@ -38,6 +38,8 @@ chrono-pr pr-watch --pr 42 --head-sha "$head_sha" < completion.jsonl
 
 旧预览版 v0.1.0-alpha.1 使用 v2 配置与操作账本。升级时将配置改为 v3，删除 `state_directory`、`state_producer`，重新查询指定 PR。旧预览版及其原校验文件仍可从对应标签取得。
 
+每次调用为 gh 建立专属进程组。启动器退出后，macOS 通过 kqueue、Linux 通过 pidfd 等候组内仍在工作的成员，包括已关闭标准流的成员。收到退出事件后重新核对组内成员，调用超时会取消原进程组。无法确认进程组已经结束时，该次请求返回 unknown。
+
 ## 构建、测试与证明
 
 安装本仓固定的 Rust 工具链和 Verus `0.2026.04.24.f8e1704`，运行 `VERUS=/path/to/verus ./check.sh`。所有测试、命令替身和证明根都位于本仓的 `crates/pr` 产品内。构建发行二进制使用 `cargo build --release --locked --manifest-path crates/pr/Cargo.toml`。
