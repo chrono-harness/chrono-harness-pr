@@ -201,6 +201,12 @@ pub fn pull_request_open(state: &str) -> (open: bool)
 
 /// GitHub can omit the associated PR list. The selected check suite then
 /// binds this completion to the original GitHub snapshot of the requested PR.
+pub fn open_conflict(state: &str, mergeable: &str) -> (conflict: bool)
+    ensures conflict == (state@ == "OPEN"@ && mergeable@ == "CONFLICTING"@),
+{
+    same_text(state, "OPEN") && same_text(mergeable, "CONFLICTING")
+}
+
 pub fn notification_belongs(no_associations: bool, matching_pr: bool, matching_suite: bool) -> (accepted: bool)
     ensures accepted == (if no_associations { matching_suite } else { matching_pr }),
 {
