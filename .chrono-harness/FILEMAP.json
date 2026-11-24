@@ -549,8 +549,13 @@
         }
       ],
       "verification": {
-        "role": "data",
-        "roots": []
+        "role": "specification",
+        "roots": [
+          {
+            "path": "crates/pr/tests/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot-tests"
+          }
+        ]
       }
     },
     {
@@ -585,8 +590,13 @@
         }
       ],
       "verification": {
-        "role": "data",
-        "roots": []
+        "role": "specification",
+        "roots": [
+          {
+            "path": "crates/pr/tests/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot-tests"
+          }
+        ]
       }
     },
     {
