@@ -24,11 +24,7 @@
 原生检查入口用 `chrono-host-bootstrap native-scratch run PROGRAM [ARG ...]` 启动编译或测试。子程序从 `CHRONO_NATIVE_SCRATCH` 取得本次专用目录。成功且读者退出后即可回收；失败或中断的目录保留 86400 秒，仍持租约时继续保全。需要留存的诊断应在窗口内转存并核对摘要。
 
 
-运行 `mise run harness-maintain-checks` 进行一次维护。长期检出可在本机用户的 crontab 中加入下列条目，将仓库和 mise 路径换为本机绝对路径。定时器每小时唤起同一入口，启用后用原件的实际消失核对回收。在删除条目之前应保全有价值的结果，并完成剩余清理。
-
-```cron
-0 * * * * cd '/absolute/path/to/repository' && '/absolute/path/to/mise' run harness-maintain-checks >/dev/null
-```
+运行 `mise run harness-maintain-checks` 可执行一轮本仓已选的维护。宿主已将此命令接入事件维护服务时，业务事件唤醒服务，由持有协调者独占租约的进程调用它。模板只生成这条命令。保留期届满且读者已释放的产物，由下一次成功处理该目录的维护轮次回收。长期没有事件或显式维护时，已到期的产物会继续占用磁盘。
 
 
 

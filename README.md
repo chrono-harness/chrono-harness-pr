@@ -32,9 +32,9 @@ chrono-pr pr-watch --pr 42 --head-sha "$head_sha" < completion.jsonl
 
 `pr-open` 支持 `--draft`，复用已有匹配的 PR。创建得到有效编号后即保存提醒，回读失败也可按编号重新查询。远端命令的标准输出为 `chrono-pr-result/v3` JSON，含提交、检查、合并身份及实际子进程的 argv、退出状态和有界输出字节。收到信号时，进程回执的 `exit_signal` 记录实际信号，`exit_code` 为 `null`。命令退出码分别为 0（成功）、1（检查失败或关闭）、2（错误或未知）、3（待定）、4（提交已变化）。如出现 `reminder_error`，远端结果仍可使用，本次本地提醒更新失败。
 
-提醒存放于工作树的 `.chrono-harness/pr-reminders.sqlite3`，应加入宿主的 Git 忽略规则。SQLite 在提交删除时把空闲页交还文件系统。已有提醒库在首次使用时转换一次格式。查询其他人的 PR 不会将其加入提醒。查到关闭或合并即移除；每次使用本工具时清除创建已满 30 天的提醒。本仓的每小时维护任务也运行离线的 `pr-reminders` 清理已过期记录。工作树被宿主回收时整个本地库随之删除。需要长期保存的查询结果可直接从 stdout 写入自己的持久存储。
+提醒存放于工作树的 `.chrono-harness/pr-reminders.sqlite3`，应加入宿主的 Git 忽略规则。SQLite 在提交删除时把空闲页交还文件系统。已有提醒库在首次使用时转换一次格式。查询其他人的 PR 不会将其加入提醒。查到关闭或合并即移除；每次使用本工具时清除创建已满 30 天的提醒。离线调用 `pr-reminders` 也会清理已过期记录。工作树被宿主回收时整个本地库随之删除。需要长期保存的查询结果可直接从 stdout 写入自己的持久存储。
 
-长期主检出如需在没有 PR 查询时也回收过期提醒，可将 `0 * * * * cd '/absolute/path/to/repository' && '/absolute/path/to/mise' exec -- chrono-pr pr-reminders >/dev/null` 加入用户 crontab。该命令在本地读取并删除过期行。检查原件的保管窗口及独立定时命令见[开发机检查原件](.chrono-harness/USAGE.md)。
+主检出的维护执行者可调用 `mise exec -- chrono-pr pr-reminders`，在本地读取提醒并删除过期行。检查原件的窗口和维护入口见[开发机检查原件](.chrono-harness/USAGE.md)。
 
 `pr-watch` 先查询 GitHub 上的目标 PR、head、base 与合并状态。固定 head 上已有冲突时直接返回 `conflict`（退出 1）。必需检查仍在运行时，向标准输入逐行发送原始 GitHub webhook JSON。支持 `workflow_run.completed`、`pull_request.closed`、`pull_request.synchronize` 和 head 或 base 分支的 `push`。来自 fork 的 head 推送需要该 fork 的事件通道，目标仓的 synchronize 事件也可唤醒。无关仓库、无关分支或旧提交的事件会被略过。命令在匹配事件到达后重新读取 PR；head 已变返回 `stale`（退出 4），base 已变且确认冲突返回 `conflict`，base 已变且合并状态仍待计算时返回 `changed`（退出 3）。JSON 的 `observed_base`、`observed_head`、`head_repository` 和 `mergeable` 给出 GitHub 本次观察值。通知通道关闭、超时或查询失败时返回 `unknown`。
 
