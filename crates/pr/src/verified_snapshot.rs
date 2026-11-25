@@ -368,6 +368,39 @@ pub fn open_conflict(state: &str, mergeable: &str) -> (conflict: bool)
     same_text(state, "OPEN") && same_text(mergeable, "CONFLICTING")
 }
 
+/// A notification identifies which push run to read. Only that read settles the watch.
+pub enum PushNotice<'a> {
+    Run { event: &'a str },
+    Job { id: u64 },
+}
+
+pub fn push_notice_matches(
+    repo: &str, expected_repo: &str, id: u64, expected_id: u64,
+    head: &str, expected_head: &str, attempt: Option<u64>, first_attempt: u64,
+    action: &str, notice: PushNotice<'_>,
+) -> (accepted: bool)
+    ensures accepted == (
+        repo@ == expected_repo@ && id == expected_id && head@ == expected_head@
+        && match notice {
+            PushNotice::Run { event } => event@ == "push"@
+                && (action@ == "requested"@ || action@ == "in_progress"@ || action@ == "completed"@)
+                && match attempt { Some(n) => n >= first_attempt, None => false },
+            PushNotice::Job { id: job } => job > 0
+                && (action@ == "waiting"@ || action@ == "queued"@ || action@ == "in_progress"@ || action@ == "completed"@)
+                && match attempt { Some(n) => n >= first_attempt, None => true },
+        }
+    ),
+{
+    if !same_text(repo,expected_repo) || id != expected_id || !same_text(head,expected_head) { return false; }
+    if let Some(n) = attempt { if n < first_attempt { return false; } }
+    let active_or_done = same_text(action,"in_progress") || same_text(action,"completed");
+    match notice {
+        PushNotice::Run { event } => attempt.is_some() && same_text(event,"push")
+            && (active_or_done || same_text(action,"requested")),
+        PushNotice::Job { id: job } => job > 0 && (active_or_done || same_text(action,"queued") || same_text(action,"waiting")),
+    }
+}
+
 pub fn notification_belongs(no_associations: bool, matching_pr: bool, matching_suite: bool) -> (accepted: bool)
     ensures accepted == (if no_associations { matching_suite } else { matching_pr }),
 {

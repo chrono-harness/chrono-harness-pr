@@ -1078,7 +1078,14 @@ fn push_run_returns_verified_progress_and_ignores_unrelated_or_duplicate_events(
     let mut other = job.clone();
     other["workflow_job"]["run_id"] = json!(205);
     let mut frames = Vec::new();
-    for event in [&other, &job, &job] {
+    let mut malformed = job.clone();
+    malformed["workflow_job"]["run_attempt"] = json!("1");
+    let mut no_attempt = job.clone();
+    no_attempt["workflow_job"]
+        .as_object_mut()
+        .unwrap()
+        .remove("run_attempt");
+    for event in [&other, &malformed, &no_attempt, &job] {
         writeln!(frames, "{event}").unwrap();
     }
     let (exit, result) = host.run_with_input(&["run-watch", "--run", "857"], &frames, false);

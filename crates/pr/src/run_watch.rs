@@ -73,33 +73,51 @@ fn read(client: &mut Client, id: u64) -> Result<Run, String> {
 }
 
 fn notification(repo: &str, run: &Run, body: &Value) -> Option<Value> {
-    if body.pointer("/repository/full_name")?.as_str()? != repo {
-        return None;
-    }
+    use verified_snapshot::{PushNotice, push_notice_matches};
+
+    let repository = body.pointer("/repository/full_name")?.as_str()?;
     let action = body.get("action")?.as_str()?;
-    if let Some(item) = body.get("workflow_run") {
-        if !matches!(action, "requested" | "in_progress" | "completed")
-            || item["event"] != "push"
-            || item["id"].as_u64() != Some(run.database_id)
-            || item["head_sha"] != run.head_sha
-            || item["run_attempt"].as_u64()? < run.attempt
-        {
-            return None;
-        }
-        return Some(json!({"event":format!("workflow_run.{action}"),"run_id":run.database_id}));
-    }
-    let job = body.get("workflow_job")?;
-    let job_id = job["id"].as_u64().filter(|id| *id > 0)?;
-    if !matches!(action, "waiting" | "queued" | "in_progress" | "completed")
-        || job["run_id"].as_u64() != Some(run.database_id)
-        || job["head_sha"] != run.head_sha
-        || job["run_attempt"]
-            .as_u64()
-            .is_some_and(|attempt| attempt < run.attempt)
-    {
+    let (record, run_id, notice, job_id) = if let Some(item) = body.get("workflow_run") {
+        (
+            item,
+            item["id"].as_u64()?,
+            PushNotice::Run {
+                event: item["event"].as_str()?,
+            },
+            None,
+        )
+    } else {
+        let job = body.get("workflow_job")?;
+        let id = job["id"].as_u64()?;
+        (
+            job,
+            job["run_id"].as_u64()?,
+            PushNotice::Job { id },
+            Some(id),
+        )
+    };
+    let attempt = match record.get("run_attempt") {
+        Some(value) => Some(value.as_u64()?),
+        None => None,
+    };
+    if !push_notice_matches(
+        repository,
+        repo,
+        run_id,
+        run.database_id,
+        record["head_sha"].as_str()?,
+        &run.head_sha,
+        attempt,
+        run.attempt,
+        action,
+        notice,
+    ) {
         return None;
     }
-    Some(json!({"event":format!("workflow_job.{action}"),"run_id":run.database_id,"job_id":job_id}))
+    Some(match job_id {
+        Some(id) => json!({"event":format!("workflow_job.{action}"),"run_id":run_id,"job_id":id}),
+        None => json!({"event":format!("workflow_run.{action}"),"run_id":run_id}),
+    })
 }
 
 fn outcome(run: &Run, expected: &str, changed: bool) -> Result<&'static str, String> {

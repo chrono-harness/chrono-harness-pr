@@ -22,6 +22,21 @@ use vstd::vpanic as panic;
 
 verus! {
 
+fn push_notifications_preserve_run_and_job_boundaries(
+    repo: &str, head: &str, action: &str, old: u64, next: u64,
+) {
+    use policy::{PushNotice, push_notice_matches};
+    let missing_run = push_notice_matches(repo,repo,8,8,head,head,None,old,action,PushNotice::Run { event: "push" });
+    let zero_job = push_notice_matches(repo,repo,8,8,head,head,None,old,action,PushNotice::Job { id: 0 });
+    let job = push_notice_matches(repo,repo,8,8,head,head,Some(next),old,action,PushNotice::Job { id: 12 });
+    let missing_job = push_notice_matches(repo,repo,8,8,head,head,None,old,action,PushNotice::Job { id: 12 });
+    assert(!missing_run && !zero_job);
+    if next < old { assert(!job); } else { assert(job == missing_job); }
+    proof {
+        if action@ == "queued"@ { assert(missing_job); }
+    }
+}
+
 fn same_run_label(actual: &str, expected: &str) -> (equal: bool)
     ensures equal == (actual@ == expected@),
 { actual.to_string() == expected.to_string() }
