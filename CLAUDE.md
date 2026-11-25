@@ -2,8 +2,6 @@
 
 组件的用途、开发仓库和示例见 [Chrono Harness 用户与开发者入口](https://github.com/chrono-harness/chrono-harness-main)。
 
-提交 Issue、命名分支和交付 PR 时，遵循[协作规范](https://github.com/chrono-harness/chrono-harness-main/blob/dev/docs/contributing.md)。
-
 `chrono-pr` 通过 GitHub CLI 打开 PR、查询指定提交、等待检查。每次远端查询都读取 GitHub。可用 `pr-reminders` 离线查看当前工作树里由本工具创建、仍待跟进的 PR。
 
 ## 本仓开发
@@ -29,8 +27,6 @@ mise run harness-setup
 
 本仓使用自己的源码和业务检查。接入已有项目时，在本文件的生成块外写明项目职责、源码位置和本地验证命令。
 
-
-开始和结束任务时，用 `mise exec -- chrono-pr pr-reminders` 查看本工作树中自己打开的 PR。用 `mise exec -- chrono-pr pr-status --pr NUMBER --head-sha SHA` 核对指定候选。
 
 ## 基础指令
 
