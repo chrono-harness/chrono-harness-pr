@@ -26,10 +26,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.pr-snapshot.rlib,dep-info=.chrono-harness/state/verify.pr-snapshot.rlib.d",
+            "--emit=link={operation_state}/verify.pr-snapshot.rlib,dep-info={operation_state}/verify.pr-snapshot.rlib.d",
             "crates/pr/src/verified_snapshot.rs",
             "-o",
-            ".chrono-harness/state/verify.pr-snapshot.rlib",
+            "{operation_state}/verify.pr-snapshot.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -57,10 +57,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.pr-snapshot-tests.rlib,dep-info=.chrono-harness/state/verify.pr-snapshot-tests.rlib.d",
+            "--emit=link={operation_state}/verify.pr-snapshot-tests.rlib,dep-info={operation_state}/verify.pr-snapshot-tests.rlib.d",
             "crates/pr/tests/verified_snapshot.rs",
             "-o",
-            ".chrono-harness/state/verify.pr-snapshot-tests.rlib",
+            "{operation_state}/verify.pr-snapshot-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {

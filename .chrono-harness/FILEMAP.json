@@ -91,7 +91,16 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ]
     },
     {
       "path": ".chrono-harness/release.json",
