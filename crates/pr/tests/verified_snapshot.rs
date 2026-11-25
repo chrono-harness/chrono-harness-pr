@@ -21,6 +21,18 @@ use vstd::string::StringSliceAdditionalSpecFns;
 use vstd::vpanic as panic;
 
 verus! {
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn gh_completion_retains_errors_and_selects_only_successful_replies() {
+    use policy::{CommandReply::*, command_reply};
+    expect_snapshot_true(matches!(command_reply(Some(37u16), Some(0), None, true), TransportFailure(error) if error == 37));
+    expect_snapshot_true(matches!(command_reply(Some(41u16), None, Some(15), false), TransportFailure(error) if error == 41));
+    expect_snapshot_true(matches!(command_reply::<u16>(None, None, Some(9), true), Signal(signal) if signal == 9));
+    expect_snapshot_true(matches!(command_reply::<u16>(None, None, None, false), MissingStatus));
+    expect_snapshot_true(matches!(command_reply::<u16>(None, Some(1), None, true), Nonzero(code) if code == 1));
+    expect_snapshot_true(matches!(command_reply::<u16>(None, Some(u32::MAX), None, false), Nonzero(code) if code == u32::MAX));
+    expect_snapshot_true(matches!(command_reply::<u16>(None, Some(0), None, true), CreationUrl));
+    expect_snapshot_true(matches!(command_reply::<u16>(None, Some(0), None, false), Json));
+}
 
 fn push_notifications_preserve_run_and_job_boundaries(
     repo: &str, head: &str, action: &str, old: u64, next: u64,

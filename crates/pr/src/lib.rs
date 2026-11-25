@@ -349,28 +349,28 @@ impl Client {
             "argv":argv, "child_pid":process.child_pid, "exit_code":process.exit_code,"exit_signal":process.signal,
             "timed_out":process.timed_out,"failure":process.failure, "stdout_bytes":process.stdout,"stderr_bytes":process.stderr
         }));
-        if let Some(failure) = process.failure {
-            return Err(failure);
-        }
-        let code = process.exit_code.ok_or_else(|| match process.signal {
-            Some(signal) => {
-                format!("GitHub command terminated by signal {signal}; see original receipt")
-            }
-            None => {
-                "GitHub command ended without an exit code or signal; see original receipt".into()
-            }
-        })?;
-        if code != 0 {
-            return Err(format!(
+        use verified_snapshot::CommandReply;
+        match verified_snapshot::command_reply(
+            process.failure,
+            process.exit_code,
+            process.signal,
+            creating,
+        ) {
+            CommandReply::TransportFailure(failure) => Err(failure),
+            CommandReply::Signal(signal) => Err(format!(
+                "GitHub command terminated by signal {signal}; see original receipt"
+            )),
+            CommandReply::MissingStatus => Err(
+                "GitHub command ended without an exit code or signal; see original receipt".into(),
+            ),
+            CommandReply::Nonzero(code) => Err(format!(
                 "GitHub command exited {code}; see original receipt"
-            ));
+            )),
+            CommandReply::CreationUrl => Ok(json!(
+                String::from_utf8(process.stdout).map_err(|_| "non-UTF-8 creation output")?
+            )),
+            CommandReply::Json => snapshot::response(&process.stdout),
         }
-        let value = if creating {
-            json!(String::from_utf8(process.stdout).map_err(|_| "non-UTF-8 creation output")?)
-        } else {
-            snapshot::response(&process.stdout)?
-        };
-        Ok(value)
     }
 
     fn update_reminder(&mut self, number: u64, head: Option<&str>) {
