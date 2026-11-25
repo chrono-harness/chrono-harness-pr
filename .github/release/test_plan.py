@@ -33,6 +33,7 @@ class ReleasePlan(unittest.TestCase):
                 "kind": "event", "repository": repository, "event_name": "workflow_run",
                 "event": {"repository": event["repository"], "ref": None, "workflow_run": {"head_branch": "dev"}},
             }, '"dev"'),
+            ("template-promotion-v1", {"kind": "version-policy", "config": config}, "false"),
             ("template-run-v1", {
                 "run": run, "repository": repository, "branch": "dev", "workflow": workflow, "sha": sha,
             }, ""),

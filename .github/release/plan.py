@@ -37,11 +37,12 @@ def check_run(run, repository, branch, workflow, sha):
 
 
 def successful_run(repository, branch, workflow, sha):
-    query = urlencode({"event": "push", "branch": branch, "head_sha": sha, "per_page": 100})
+    query = urlencode({"event": "push", "branch": branch, "head_sha": sha,
+                       "status": "success", "per_page": 1})
     path = f"repos/{repository}/actions/workflows/{workflow}/runs?{query}"
-    for run in api(path)["workflow_runs"]:
-        if run["status"] == "completed" and run["conclusion"] == "success":
-            return run
+    runs = api(path)["workflow_runs"]
+    if runs:
+        return runs[0]
     raise ValueError(f"no successful {workflow} push for {repository}@{sha}")
 
 
@@ -82,7 +83,7 @@ def public_preview(repository, tag, checksums):
     return release
 
 
-def consumer_pin(config, repository, sha):
+def consumer_pin(config, repository, sha, rolling):
     consumer = config["consumer"]
     doc = api(f"repos/{consumer['repository']}/contents/{consumer['pin']}?ref={sha}")
     raw = base64.b64decode(doc["content"]).decode()
@@ -91,7 +92,7 @@ def consumer_pin(config, repository, sha):
         answers = yaml.safe_load(raw)
         tag, checksums = json.loads(judge("template-consumer-pin-v1", {
             "kind": "copier", "repository": repository, "version": config["version"],
-            "rolling": config.get("version_policy") == "next_patch", "answers": answers}))
+            "rolling": rolling, "answers": answers}))
         return tag, checksums
     import tomllib
     binary = config["binary"]
@@ -129,15 +130,13 @@ def latest_source_release(repository):
 
 
 def next_target(config, repository):
-    policy = config.get("version_policy", "explicit")
-    require(policy in ("explicit", "next_patch"), "unsupported version policy")
-    if policy == "explicit":
-        return config, None
-    require(config["kind"] == "copier", "next_patch requires a Copier source product")
+    rolling = json.loads(judge("template-promotion-v1", {"kind": "version-policy", "config": config}))
+    if not rolling:
+        return config, None, rolling
     latest = latest_source_release(repository)
     result = judge("template-next-version-v1", {"floor": config["version"],
                                                 "latest": latest[0][1:] if latest else None})
-    return dict(config, version=json.loads(result)), latest
+    return dict(config, version=json.loads(result)), latest, rolling
 
 
 def already_released(repository, latest, sha):
@@ -164,7 +163,7 @@ def plan(config, repository, event, event_name, *, route=None):
     check_workflow = config["check"]["file"]
     require(re.fullmatch(CORE, config["version"]), "invalid release version")
     source_config = config
-    config, latest = next_target(config, repository)
+    config, latest, rolling = next_target(config, repository)
     version = config["version"]
     if route in ("dev", "main"):
         run = event["workflow_run"]
@@ -195,7 +194,7 @@ def plan(config, repository, event, event_name, *, route=None):
     run = successful_run(downstream, branch, consumer["workflow"], adopted)
     check_run(run, downstream, branch, consumer["workflow"], adopted)
     check_acceptance(downstream, run, consumer)
-    tag, checksums = consumer_pin(config, repository, adopted)
+    tag, checksums = consumer_pin(config, repository, adopted, rolling)
     selected = sha_of(repository, "tags/" + tag)
     completed = already_released(repository, latest, selected)
     if completed:
