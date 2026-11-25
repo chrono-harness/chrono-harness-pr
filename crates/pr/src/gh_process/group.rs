@@ -15,7 +15,7 @@ pub(super) fn wait(pid: u32, deadline: Instant) -> io::Result<()> {
     wait_exit(group, group, deadline)?;
     // New children may be forked while an existing member is finishing.
     // Take another inventory only after the kernel reports that member's exit.
-    while let Some(member) = live_member(group)? {
+    while let Some(member) = live_member(group, deadline)? {
         wait_exit(member, group, deadline)?;
     }
     Ok(())
@@ -53,7 +53,7 @@ pub(super) fn verify_empty(pid: u32) -> io::Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn live_member(group: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
+fn live_member(group: libc::pid_t, _deadline: Instant) -> io::Result<Option<libc::pid_t>> {
     // Darwin sys/proc_info.h, omitted by the Rust libc bindings.
     const PROC_PGRP_ONLY: u32 = 2;
     let mut pids = vec![0_i32; 32];
@@ -159,7 +159,7 @@ fn wait_exit(pid: libc::pid_t, group: libc::pid_t, deadline: Instant) -> io::Res
 }
 
 #[cfg(target_os = "linux")]
-fn live_member(group: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
+fn live_member(group: libc::pid_t, deadline: Instant) -> io::Result<Option<libc::pid_t>> {
     use std::fs;
     for entry in fs::read_dir("/proc")? {
         let entry = entry?;
@@ -191,8 +191,18 @@ fn live_member(group: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
             .nth(1)
             .and_then(|s| std::str::from_utf8(s).ok())
             .and_then(|s| s.parse::<i32>().ok());
-        if current_group == Some(group) && !matches!(state, Some(b"Z" | b"X" | b"x")) {
+        if current_group != Some(group) {
+            continue;
+        }
+        if !matches!(state, Some(b"Z" | b"X" | b"x")) {
             return Ok(Some(pid));
+        }
+        // An exited member keeps its group alive until its parent reaps it.
+        // The leader still pins the group here. Wait for the kernel's reaping
+        // event within the original deadline, then apply the final group check.
+        match wait_pidfd(pid, group, deadline, libc::POLLHUP) {
+            Err(error) if error.kind() == io::ErrorKind::TimedOut => {}
+            result => result?,
         }
     }
     Ok(None)
@@ -200,6 +210,16 @@ fn live_member(group: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
 
 #[cfg(target_os = "linux")]
 fn wait_exit(pid: libc::pid_t, group: libc::pid_t, deadline: Instant) -> io::Result<()> {
+    wait_pidfd(pid, group, deadline, libc::POLLIN)
+}
+
+#[cfg(target_os = "linux")]
+fn wait_pidfd(
+    pid: libc::pid_t,
+    group: libc::pid_t,
+    deadline: Instant,
+    event: libc::c_short,
+) -> io::Result<()> {
     let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) } as i32;
     if raw < 0 {
         let error = io::Error::last_os_error();
@@ -215,14 +235,14 @@ fn wait_exit(pid: libc::pid_t, group: libc::pid_t, deadline: Instant) -> io::Res
     }
     let mut ev = libc::pollfd {
         fd: fd.as_raw_fd(),
-        events: libc::POLLIN,
+        events: event,
         revents: 0,
     };
     loop {
         let timeout = remaining(deadline)?;
         let millis = i32::try_from(timeout.as_millis().saturating_add(1)).unwrap_or(i32::MAX);
         let n = unsafe { libc::poll(&mut ev, 1, millis) };
-        if n > 0 && ev.revents & (libc::POLLIN | libc::POLLHUP) != 0 {
+        if n > 0 && ev.revents & (event | libc::POLLHUP) != 0 {
             return Ok(());
         }
         if n > 0 {

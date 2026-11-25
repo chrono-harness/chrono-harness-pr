@@ -430,6 +430,10 @@ fn draft_creation_is_explicit_and_readback_failure_preserves_the_pr_number() {
 fn quiet_descendant_finishes_before_query_result() {
     let mut step = api(snapshot());
     step["quiet_descendant_ms"] = json!(300);
+    #[cfg(target_os = "linux")]
+    {
+        step["reap_delay_ms"] = json!(250);
+    }
     let host = Host::new(vec![step]);
     let (code, result) = host.status();
     assert_eq!(code, 0, "{result}");

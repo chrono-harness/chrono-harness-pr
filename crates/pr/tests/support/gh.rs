@@ -1,8 +1,49 @@
 use serde_json::{Value, json};
 use std::{fs, io::Read};
 
+// Keep the quiet worker in the mock gh group while its parent, outside the
+// group, deliberately postpones reaping. The parent acknowledges registration
+// before the original launcher exits so the group never disappears in between.
+#[cfg(target_os = "linux")]
+fn delayed_reaper(args: &[String]) {
+    use std::{
+        io::Write,
+        os::unix::process::CommandExt,
+        process::{Command, Stdio},
+    };
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args(["late-marker", &args[1]])
+        .process_group(args[3].parse().unwrap())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    std::io::stdout().write_all(b"R").unwrap();
+    std::io::stdout().flush().unwrap();
+    let mut status: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    assert_eq!(
+        unsafe {
+            libc::waitid(
+                libc::P_PID,
+                child.id(),
+                &mut status,
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        },
+        0
+    );
+    std::thread::sleep(std::time::Duration::from_millis(args[2].parse().unwrap()));
+    assert!(child.wait().unwrap().success());
+}
+
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
+    #[cfg(target_os = "linux")]
+    if args.first().map(String::as_str) == Some("delayed-reaper") {
+        delayed_reaper(&args);
+        return;
+    }
     if args.first().map(String::as_str) == Some("late-marker") {
         std::thread::sleep(std::time::Duration::from_millis(args[1].parse().unwrap()));
         fs::write("child-finished", b"done").unwrap();
@@ -39,6 +80,37 @@ fn main() {
     eprint!("{}", step["stderr"].as_str().unwrap_or(""));
     std::io::stdout().flush().unwrap();
     std::io::stderr().flush().unwrap();
+    #[cfg(target_os = "linux")]
+    if let Some(reap_delay) = step["reap_delay_ms"].as_u64() {
+        use std::{
+            os::unix::process::CommandExt,
+            process::{Command, Stdio},
+        };
+        let delay = step["quiet_descendant_ms"].as_u64().unwrap();
+        let group = unsafe { libc::getpgrp() };
+        let mut helper = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "delayed-reaper",
+                &delay.to_string(),
+                &reap_delay.to_string(),
+                &group.to_string(),
+            ])
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut ready = [0; 1];
+        helper
+            .stdout
+            .take()
+            .unwrap()
+            .read_exact(&mut ready)
+            .unwrap();
+        assert_eq!(ready, *b"R");
+        return;
+    }
     if let Some(delay) = step["quiet_descendant_ms"].as_u64() {
         use std::process::{Command, Stdio};
         let _child = Command::new(std::env::current_exe().unwrap())
