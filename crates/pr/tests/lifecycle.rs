@@ -623,6 +623,41 @@ fn fork_head_push_or_synchronize_wakes_the_original_pr() {
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn synchronize_checks_pr_identity_and_both_refs_before_querying_github() {
+    let valid = json!({"action":"synchronize","repository":{"full_name":"example/host"},
+        "before":HEAD,"after":OTHER,"pull_request":{"number":42,
+        "base":{"ref":"dev","repo":{"full_name":"example/host"}},
+        "head":{"ref":"integration/change","sha":OTHER,"repo":{"full_name":"example/host"}}}});
+    let mut input = String::new();
+    for (pointer, value) in [
+        ("/repository/full_name", json!("different/host")),
+        ("/pull_request/number", json!(43)),
+        ("/pull_request/base/ref", json!("main")),
+        ("/pull_request/base/repo/full_name", json!("fork/host")),
+        ("/pull_request/head/ref", json!("other")),
+        ("/pull_request/head/repo/full_name", json!("fork/host")),
+        ("/pull_request/head/sha", json!(HEAD)),
+        ("/before", json!(OTHER)),
+        ("/after", json!("invalid")),
+    ] {
+        let mut unrelated = valid.clone();
+        *unrelated.pointer_mut(pointer).unwrap() = value;
+        input.push_str(&unrelated.to_string());
+        input.push('\n');
+    }
+    let host = Host::new(vec![api(pending())]);
+    let (code, result) = host.run_with_input(
+        &["pr-watch", "--pr", "42", "--head-sha", HEAD],
+        input.as_bytes(),
+        false,
+    );
+    assert_eq!(code, 2, "{result}");
+    assert_eq!(result["outcome"], "unknown");
+    assert_eq!(host.calls().len(), 1);
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn api_failure_retains_original_output_without_retry() {
     let h = Host::new(vec![
         json!({"prefix":["api","graphql"],"stdout":"partial\n","stderr":"HTTP 403\n","exit":1}),

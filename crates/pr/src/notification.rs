@@ -93,23 +93,27 @@ pub(crate) fn pr_event(
     let head = pr.head.as_str();
     let number = pr.number;
     let required_suites = &pr.required_suite_ids;
-    let transition = |before: &str| {
-        let after = body["after"].as_str()?;
-        (body["before"] == before && after != before && crate::snapshot::sha(after))
-            .then_some(after)
+    use crate::verified_snapshot::{PushedBranch, WatchedBranch, pushed_branch, synchronized_head};
+    let head_ref = WatchedBranch {
+        repository: &pr.head_repository,
+        branch: &pr.branch,
+        oid: head,
+    };
+    let base_ref = WatchedBranch {
+        repository,
+        branch: base,
+        oid: &pr.base_oid,
     };
     if let Some(branch) = body["ref"]
         .as_str()
         .and_then(|r| r.strip_prefix("refs/heads/"))
     {
-        let (before, role) = if event_repo == pr.head_repository && branch == pr.branch {
-            (head, "head")
-        } else if event_repo == repository && branch == base {
-            (pr.base_oid.as_str(), "base")
-        } else {
-            return None;
+        let before = body["before"].as_str()?;
+        let after = body["after"].as_str()?;
+        let role = match pushed_branch(&head_ref, &base_ref, event_repo, branch, before, after)? {
+            PushedBranch::Head => "head",
+            PushedBranch::Base => "base",
         };
-        let after = transition(before)?;
         return Some(
             serde_json::json!({"event":"push","role":role,"repository":event_repo,"ref":body["ref"],"before":before,"after":after}),
         );
@@ -139,21 +143,22 @@ pub(crate) fn pr_event(
         {
             serde_json::json!({"event":"workflow_run.completed","run_id":run["id"].as_u64().filter(|id| *id > 0)?})
         }
-        Some("synchronize")
-            if body["pull_request"]["number"].as_u64() == Some(number)
-                && body
-                    .pointer("/pull_request/head/repo/full_name")?
-                    .as_str()?
-                    == pr.head_repository
-                && body
-                    .pointer("/pull_request/base/repo/full_name")?
-                    .as_str()?
-                    == repository
-                && body["pull_request"]["head"]["ref"] == pr.branch
-                && body["pull_request"]["base"]["ref"] == base =>
-        {
-            let after = transition(head)?;
-            if body["pull_request"]["head"]["sha"] != after {
+        Some("synchronize") => {
+            let notice = &body["pull_request"];
+            let after = body["after"].as_str()?;
+            if !synchronized_head(
+                number,
+                notice["number"].as_u64()?,
+                &head_ref,
+                &base_ref,
+                notice.pointer("/head/repo/full_name")?.as_str()?,
+                notice["head"]["ref"].as_str()?,
+                notice.pointer("/base/repo/full_name")?.as_str()?,
+                notice["base"]["ref"].as_str()?,
+                body["before"].as_str()?,
+                after,
+                notice["head"]["sha"].as_str()?,
+            ) {
                 return None;
             }
             serde_json::json!({"event":"pull_request.synchronize","role":"head","before":head,"after":after})

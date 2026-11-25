@@ -41,6 +41,53 @@ fn same_run_label(actual: &str, expected: &str) -> (equal: bool)
     ensures equal == (actual@ == expected@),
 { actual.to_string() == expected.to_string() }
 
+// Use arbitrary valid pushed OIDs; native command tests supply the GitHub wire values.
+fn pr_branch_notifications_bind_both_ends(
+    old: &str, next: &str, base_old: &str,
+)
+    requires old@ != next@, base_old@ != old@, base_old@ != next@,
+        policy::sha_format(next.spec_bytes()),
+{
+    use policy::{WatchedBranch, PushedBranch};
+    proof {
+        reveal_strlit("f"); reveal_strlit("r"); reveal_strlit("x"); reveal_strlit("b");
+        assert("f"@[0] == 'f'); assert("r"@[0] == 'r');
+        assert("x"@[0] == 'x'); assert("b"@[0] == 'b');
+    }
+    let head = WatchedBranch { repository: "f", branch: "x", oid: old };
+    let base = WatchedBranch { repository: "r", branch: "b", oid: base_old };
+    let fork = policy::pushed_branch(&head, &base, "f", "x", old, next);
+    let base_push = policy::pushed_branch(&head, &base, "r", "b", base_old, next);
+    let different_fork = policy::pushed_branch(&head, &base, "r", "x", old, next);
+    let wrong_before = policy::pushed_branch(&head, &base, "f", "x", base_old, next);
+    let no_change = policy::pushed_branch(&head, &base, "f", "x", old, old);
+    assert(matches!(fork, Some(PushedBranch::Head)));
+    assert(matches!(base_push, Some(PushedBranch::Base)));
+    assert(different_fork.is_none() && wrong_before.is_none() && no_change.is_none());
+
+    let same_ref = WatchedBranch { repository: "f", branch: "x", oid: base_old };
+    let head_first = policy::pushed_branch(&head, &same_ref, "f", "x", old, next);
+    let no_fallback = policy::pushed_branch(&head, &same_ref, "f", "x", base_old, next);
+    assert(matches!(head_first, Some(PushedBranch::Head)) && no_fallback.is_none());
+
+    let sync = policy::synchronized_head(42, 42, &head, &base, "f", "x", "r", "b", old, next, next);
+    let wrong_pr = policy::synchronized_head(42, 41, &head, &base, "f", "x", "r", "b", old, next, next);
+    let wrong_tip = policy::synchronized_head(42, 42, &head, &base, "f", "x", "r", "b", old, next, old);
+    let wrong_base = policy::synchronized_head(42, 42, &head, &base, "f", "x", "r", "x", old, next, next);
+    assert(sync && !wrong_pr && !wrong_tip && !wrong_base);
+}
+
+fn malformed_after_never_wakes_a_pr(
+    head: &policy::WatchedBranch, base: &policy::WatchedBranch, bad: &str,
+)
+    requires !policy::sha_format(bad.spec_bytes()),
+{
+    let push = policy::pushed_branch(head, base, head.repository, head.branch, head.oid, bad);
+    let sync = policy::synchronized_head(1, 1, head, base, head.repository, head.branch,
+        base.repository, base.branch, head.oid, bad, bad);
+    assert(push.is_none() && !sync);
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn push_run_change_and_terminal_priorities() {
     expect_snapshot_true(same_run_label(policy::push_watch_outcome(true,true,true,true), "stale"));

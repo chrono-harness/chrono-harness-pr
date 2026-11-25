@@ -401,6 +401,71 @@ pub fn push_notice_matches(
     }
 }
 
+/// The two registered endpoints of one pending pull request.
+pub struct WatchedBranch<'a> {
+    pub repository: &'a str,
+    pub branch: &'a str,
+    pub oid: &'a str,
+}
+
+impl<'a> WatchedBranch<'a> {
+    pub open spec fn named(self, repository: &str, branch: &str) -> bool {
+        self.repository@ == repository@ && self.branch@ == branch@
+    }
+
+    fn matches(&self, repository: &str, branch: &str) -> (yes: bool)
+        ensures yes == self.named(repository, branch),
+    {
+        same_text(self.repository, repository) && same_text(self.branch, branch)
+    }
+}
+
+pub open spec fn advances_tip(tip: &str, before: &str, after: &str) -> bool {
+    tip@ == before@ && before@ != after@ && sha_format(after.spec_bytes())
+}
+
+fn tip_changed(tip: &str, before: &str, after: &str) -> (changed: bool)
+    ensures changed == advances_tip(tip, before, after),
+{
+    same_text(tip, before) && !same_text(before, after) && valid_sha_text(after)
+}
+
+pub enum PushedBranch { Head, Base }
+
+pub fn pushed_branch(
+    head: &WatchedBranch, base: &WatchedBranch, repository: &str, branch: &str,
+    before: &str, after: &str,
+) -> (role: Option<PushedBranch>)
+    ensures
+        (role matches Some(PushedBranch::Head)) ==
+            (head.named(repository, branch) && advances_tip(head.oid, before, after)),
+        (role matches Some(PushedBranch::Base)) ==
+            (!head.named(repository, branch) && base.named(repository, branch)
+             && advances_tip(base.oid, before, after)),
+{
+    if head.matches(repository, branch) {
+        if tip_changed(head.oid, before, after) { Some(PushedBranch::Head) } else { None }
+    } else if base.matches(repository, branch) && tip_changed(base.oid, before, after) {
+        Some(PushedBranch::Base)
+    } else {
+        None
+    }
+}
+
+pub fn synchronized_head(
+    number: u64, actual_number: u64, head: &WatchedBranch, base: &WatchedBranch,
+    head_repository: &str, head_branch: &str, base_repository: &str, base_branch: &str,
+    before: &str, after: &str, actual_head: &str,
+) -> (accepted: bool)
+    ensures accepted == (number == actual_number && head.named(head_repository, head_branch)
+        && base.named(base_repository, base_branch) && advances_tip(head.oid, before, after)
+        && actual_head@ == after@),
+{
+    number == actual_number && head.matches(head_repository, head_branch)
+        && base.matches(base_repository, base_branch) && tip_changed(head.oid, before, after)
+        && same_text(actual_head, after)
+}
+
 pub fn notification_belongs(no_associations: bool, matching_pr: bool, matching_suite: bool) -> (accepted: bool)
     ensures accepted == (if no_associations { matching_suite } else { matching_pr }),
 {
