@@ -18,6 +18,43 @@ pub use client::{record_pr_observation, snapshot::pull_request_merged};
 
 verus! {
 
+/// Only a successfully completed gh invocation supplies bytes for an operation response.
+pub enum CommandReply<E> {
+    TransportFailure(E),
+    Signal(i32),
+    MissingStatus,
+    Nonzero(u32),
+    CreationUrl,
+    Json,
+}
+
+pub fn command_reply<E>(failure: Option<E>, code: Option<u32>, signal: Option<i32>, creating: bool)
+    -> (reply: CommandReply<E>)
+    ensures reply == (match failure {
+        Some(error) => CommandReply::TransportFailure(error),
+        None => match code {
+            Some(0) => if creating { CommandReply::CreationUrl } else { CommandReply::Json },
+            Some(code) => CommandReply::Nonzero(code),
+            None => match signal {
+                Some(signal) => CommandReply::Signal(signal),
+                None => CommandReply::MissingStatus,
+            },
+        },
+    }),
+{
+    match failure {
+        Some(error) => CommandReply::TransportFailure(error),
+        None => match code {
+            Some(0) => if creating { CommandReply::CreationUrl } else { CommandReply::Json },
+            Some(code) => CommandReply::Nonzero(code),
+            None => match signal {
+                Some(signal) => CommandReply::Signal(signal),
+                None => CommandReply::MissingStatus,
+            },
+        },
+    }
+}
+
 /// A single watch call returns on a verified change, even while the run continues.
 pub fn push_watch_outcome(stale: bool, completed: bool, success: bool, changed: bool) -> (out: &'static str)
     ensures out@ == (if stale { "stale"@ } else if completed {
