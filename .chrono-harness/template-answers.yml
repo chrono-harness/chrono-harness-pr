@@ -1,4 +1,4 @@
-_commit: v0.1.24
+_commit: v0.1.25
 _src_path: gh:chrono-harness/chrono-harness-copier
 dev_branch: dev
 features:
@@ -43,6 +43,6 @@ release_plan:
         step: Read the landed pull request with the installed release
         workflow: pr-adoption.yml
     kind: binary
-    version: 0.1.8
+    version: 0.1.9
 repository: chrono-harness/chrono-harness-pr
 required_check: check
