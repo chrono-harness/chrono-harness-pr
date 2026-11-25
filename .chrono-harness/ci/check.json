@@ -22,7 +22,8 @@
       ".chrono-harness/config.json",
       ".config/mise/conf.d/chrono-harness.toml",
       ".chrono-harness/ci/install.sh",
-      ".github/workflows/check.yml"
+      ".github/workflows/check.yml",
+      ".chrono-harness/retention.json"
     ],
     "operation_timeout_seconds": 600,
     "operation_output_limit_bytes": 2097152,
@@ -43,6 +44,7 @@
         "report_path": ".chrono-harness/state/linux-process-group/check.json"
       }
     },
-    "shared_operations": {}
+    "shared_operations": {},
+    "report_publication": "retained-reference/v2"
   }
 }

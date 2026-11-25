@@ -23,11 +23,12 @@ macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-distribu
 
 
 [tools."http:chrono-harness"]
-version = "0.1.0-alpha.29"
+version = "0.1.0-alpha.32"
 bin = "chrono-harness"
 [tools."http:chrono-harness".platforms]
-linux-x64 = { url = "https://github.com/chrono-harness/chrono-harness-runner/releases/download/v0.1.0-alpha.29/chrono-harness-linux-x86_64", checksum = "sha256:f75c90ebd9a624bada54aff11505c04b28efae8178a18c5d8b773596c76b041f" }
-macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-runner/releases/download/v0.1.0-alpha.29/chrono-harness-macos-aarch64", checksum = "sha256:8ab9418fb9e5559e8b6cd8531676a21d41971eeca39e16d49799948b495d0514" }
+linux-x64 = { url = "https://github.com/chrono-harness/chrono-harness-runner/releases/download/v0.1.0-alpha.32/chrono-harness-linux-x86_64", checksum = "sha256:23233153baaebd0a3eba98e50f6ba96e68893bc0e6a637952cc4b38c5d737453" }
+macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-runner/releases/download/v0.1.0-alpha.32/chrono-harness-macos-aarch64", checksum = "sha256:dd52d06fe3fd46605e417037fe9cb547a53b13c98f2ffeef0e4441eba5d439c8" }
+
 
 [tools."http:chrono-host-bootstrap"]
 version = "0.1.0-alpha.11"
@@ -170,9 +171,20 @@ bin = "chrono-diagnostics"
 linux-x64 = { url = "https://github.com/chrono-harness/chrono-harness-diagnostics/releases/download/v0.1.0-alpha.5/chrono-diagnostics-linux-x86_64", checksum = "sha256:9a97de15cb0db9d04990eba0ed0de31950fb84be43d2a13dfe5ab45c428bf762" }
 macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-diagnostics/releases/download/v0.1.0-alpha.5/chrono-diagnostics-macos-aarch64", checksum = "sha256:8686bd030c9e722f942c4acf610943744dcb7600b85cdc9b68c662c01a7f4936" }
 
+[tasks.harness-maintain-checks]
+description = "Maintain registered local check originals"
+run = "chrono-harness retention --host-root . --request .chrono-harness/maintain-checks.json"
+
+
 [tasks.harness-setup]
 description = "Install this repository's selected tools"
 
-run = ["mise install", "mise exec -- chrono-instructions sync-rules --host-root ."]
+run = [
+    "mise install",
+
+    "mise exec -- chrono-instructions sync-rules --host-root .",
+
+    "sh .chrono-harness/setup-check-retention.sh",
+]
 
 

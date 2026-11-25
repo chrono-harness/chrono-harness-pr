@@ -23,6 +23,13 @@ mise run harness-setup
 
 本仓安装选择保存在 `.chrono-harness/template-answers.yml`，版本和平台校验值保存在 `.config/mise/conf.d/chrono-harness.toml`。
 
+
+本地检查原件的保留窗口和定时维护入口见 [.chrono-harness/USAGE.md](.chrono-harness/USAGE.md)。需要保留的报告和原件应在窗口内转存。
+
+
+本仓使用自己的源码和业务检查。接入已有项目时，在本文件的生成块外写明项目职责、源码位置和本地验证命令。
+
+
 开始和结束任务时，用 `mise exec -- chrono-pr pr-reminders` 查看本工作树中自己打开的 PR。用 `mise exec -- chrono-pr pr-status --pr NUMBER --head-sha SHA` 核对指定候选。
 
 ## 基础指令

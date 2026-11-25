@@ -1,6 +1,8 @@
-_commit: v0.1.26
+_commit: v0.1.30
 _src_path: gh:chrono-harness/chrono-harness-copier
 dev_branch: dev
+expire_local_check_slots:
+- .chrono-harness/state/collection/check.json
 features:
 - cache
 - ci
@@ -24,6 +26,7 @@ features:
 - verus
 generate_check: false
 github_templates: true
+local_check_retention: true
 manage_roadmap: true
 project_guide: ''
 publisher_workflow: Release
@@ -46,3 +49,4 @@ release_plan:
     version: 0.1.9
 repository: chrono-harness/chrono-harness-pr
 required_check: check
+strict_host_adapters: {}
