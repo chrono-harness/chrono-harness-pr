@@ -149,28 +149,36 @@ def already_released(repository, latest, sha):
     return None
 
 
-def plan(config, repository, event, event_name):
+def event_route(repository, event, event_name):
+    return json.loads(judge("template-promotion-v1", {
+        "kind": "event", "repository": repository, "event_name": event_name,
+        "event": {"repository": event.get("repository"), "ref": event.get("ref"),
+                  "workflow_run": {"head_branch": event.get("workflow_run", {}).get("head_branch")}}
+    }))
+
+
+def plan(config, repository, event, event_name, *, route=None):
+    if route is None:
+        route = event_route(repository, event, event_name)
     require(config["kind"] in ("copier", "binary"), "unsupported release product")
     check_workflow = config["check"]["file"]
     require(re.fullmatch(CORE, config["version"]), "invalid release version")
-    require(event["repository"]["full_name"] == repository, "wrong event repository")
     source_config = config
     config, latest = next_target(config, repository)
     version = config["version"]
-    if event_name == "workflow_run":
+    if route in ("dev", "main"):
         run = event["workflow_run"]
         sha, branch = run["head_sha"], run["head_branch"]
-        require(branch in ("dev", "main"), "unsupported release branch")
         check_run(run, repository, branch, check_workflow, sha)
         completed = already_released(repository, latest, sha)
         if completed:
             return completed
-        if branch == "dev":
+        if route == "dev":
             require(re.fullmatch(r"[a-f0-9]{40}", sha), "invalid source commit")
             contains(repository, sha, "dev")
             stable_tag = "v" + version
             path = f"repos/{repository}/git/matching-refs/tags/{stable_tag}"
-            if any(ref["ref"] == "refs/tags/" + stable_tag for ref in api(path)):
+            if json.loads(judge("template-promotion-v1", {"kind": "tag", "tag": stable_tag, "refs": api(path)})):
                 stable = api(f"repos/{repository}/releases/tags/{stable_tag}")
                 complete = judge("template-promotion-v1", {"kind": "explicit", "release": stable, "tag": stable_tag})
                 if json.loads(complete):
@@ -179,7 +187,6 @@ def plan(config, repository, event, event_name):
                     return {"mode": "complete", "sha": released, "tag": stable_tag}
             return {"mode": "preview", "sha": sha, "tag": f"v{version}-alpha.{run['run_number']}"}
     else:
-        require(event_name == "workflow_dispatch" and event["ref"] == "refs/heads/dev", "dispatch from dev")
         sha = None
 
     consumer = config["consumer"]
@@ -193,7 +200,7 @@ def plan(config, repository, event, event_name):
     completed = already_released(repository, latest, selected)
     if completed:
         return completed
-    if event_name == "workflow_dispatch":
+    if route == "dispatch":
         require(config_at(repository, selected) == source_config, "adopted preview has a different release config")
     origin = successful_run(repository, "dev", check_workflow, selected)
     judge("template-promotion-v1", {
@@ -207,8 +214,9 @@ def plan(config, repository, event, event_name):
 
 
 def event_plan(repository, event, event_name, workflow_sha):
-    source = event["workflow_run"]["head_sha"] if event_name == "workflow_run" else workflow_sha
-    return plan(config_at(repository, source), repository, event, event_name)
+    route = event_route(repository, event, event_name)
+    source = workflow_sha if route == "dispatch" else event["workflow_run"]["head_sha"]
+    return plan(config_at(repository, source), repository, event, event_name, route=route)
 
 
 if __name__ == "__main__":

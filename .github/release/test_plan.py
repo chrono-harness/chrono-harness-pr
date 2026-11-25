@@ -28,19 +28,29 @@ class ReleasePlan(unittest.TestCase):
             f"repos/{repository}/compare/{sha}...dev": {"status": "identical"},
             f"repos/{repository}/git/matching-refs/tags/{stable}": [],
         }
+        expected = [
+            ("template-promotion-v1", {
+                "kind": "event", "repository": repository, "event_name": "workflow_run",
+                "event": {"repository": event["repository"], "ref": None, "workflow_run": {"head_branch": "dev"}},
+            }, '"dev"'),
+            ("template-run-v1", {
+                "run": run, "repository": repository, "branch": "dev", "workflow": workflow, "sha": sha,
+            }, ""),
+            ("template-promotion-v1", {"kind": "contains", "comparison": {"status": "identical"}}, ""),
+            ("template-promotion-v1", {"kind": "tag", "tag": stable, "refs": []}, "false"),
+        ]
+
+        def respond(argv, *, input, **kwargs):
+            command, request, output = expected.pop(0)
+            self.assertEqual(argv, ["chrono-host-release", command])
+            self.assertEqual(json.loads(input), request)
+            return subprocess.CompletedProcess(argv, 0, output, "")
+
         with patch.object(plan, "api", side_effect=responses.__getitem__), \
-                patch.object(plan.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")) as owner:
+                patch.object(plan.subprocess, "run", side_effect=respond):
             selected = plan.plan(config, repository, event, "workflow_run")
         self.assertEqual(selected, {"mode": "preview", "sha": sha, "tag": stable + "-alpha.15"})
-        checked, contained = owner.call_args_list
-        self.assertEqual(checked.args, (["chrono-host-release", "template-run-v1"],))
-        self.assertEqual(json.loads(checked.kwargs["input"]), {
-            "run": run, "repository": repository, "branch": "dev", "workflow": workflow, "sha": sha,
-        })
-        self.assertEqual(contained.args, (["chrono-host-release", "template-promotion-v1"],))
-        self.assertEqual(json.loads(contained.kwargs["input"]), {
-            "kind": "contains", "comparison": {"status": "identical"},
-        })
+        self.assertEqual(expected, [])
 
 
 if __name__ == "__main__":
