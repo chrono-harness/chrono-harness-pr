@@ -80,6 +80,18 @@
       "edges": []
     },
     {
+      "path": ".chrono-harness/maintain-checks.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
       "path": ".chrono-harness/pr.json",
       "owner": "host",
       "surface": "product",
@@ -115,11 +127,35 @@
       ]
     },
     {
+      "path": ".chrono-harness/retention.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
+    },
+    {
       "path": ".chrono-harness/rules.json",
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
       "edges": []
+    },
+    {
+      "path": ".chrono-harness/setup-check-retention.sh",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ]
     },
     {
       "path": ".chrono-harness/template-answers.yml",
