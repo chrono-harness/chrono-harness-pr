@@ -27,6 +27,29 @@ mod publication;
 verus! {
 
 #[cfg(verus_keep_ghost)]
+fn readback_checks_identity_and_the_full_job_list(
+    url: &str, head: &str, jobs: &[policy::client::run_watch::Job], id: u64,
+)
+    requires policy::sha_format(head.spec_bytes()),
+{
+    use policy::client::run_watch::{valid_push_header, valid_job_ids};
+    let ok = valid_push_header(id,id,1,1,url,url,"push",true,head);
+    let missing_attempt = valid_push_header(id,id,1,0,url,url,"push",true,head);
+    let missing_workflow = valid_push_header(id,id,0,1,url,url,"push",true,head);
+    let bad_branch = valid_push_header(id,id,1,1,url,url,"push",false,head);
+    assert(ok && !missing_attempt && !missing_workflow && !bad_branch);
+    let accepted = valid_job_ids(jobs);
+    assert forall|i: int| 0 < i < jobs.len() && accepted implies
+        jobs@[i-1].id() < (#[trigger] jobs@[i]).id() by {
+        assert(policy::client::run_watch::ordered_at(jobs@, i));
+    }
+    if accepted && jobs.len() > 0 { assert(policy::client::run_watch::ordered_at(jobs@, 0)); }
+    assert(jobs.len() > 0 && jobs@[0].id() == 0 ==> !accepted);
+    assert(jobs.len() == 0 ==> accepted);
+}
+
+
+#[cfg(verus_keep_ghost)]
 fn local_reminder_opens_only_the_authorized_store(head: &str) {
     use policy::reminders::{opens_database, reminder_change, ReminderChange};
     expect_snapshot_true(!opens_database(false, false));

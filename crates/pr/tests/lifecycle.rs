@@ -1292,3 +1292,49 @@ fn push_run_checks_terminal_outcomes_commit_attempt_and_channel() {
         assert_eq!(host.run(&["run-watch", "--run", "857"]).0, 2);
     }
 }
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn push_run_readback_rejects_invalid_headers_before_jobs_and_orders_valid_jobs() {
+    let args = ["run-watch", "--run", "857"];
+    let mut run = push_run();
+    run["status"] = json!("completed");
+    run["conclusion"] = json!("success");
+    let mut second = run["jobs"][0].clone();
+    second["databaseId"] = json!(41);
+    run["jobs"].as_array_mut().unwrap().push(second);
+    for bad in [0, 912] {
+        let mut wrong = run.clone();
+        wrong["jobs"][1]["databaseId"] = json!(bad);
+        let host = Host::new(vec![run_view(&wrong)]);
+        let (exit, result) = host.run(&args);
+        assert_eq!(exit, 2);
+        assert_eq!(result["error"], "invalid workflow job identity");
+        assert_eq!(host.calls().len(), 1);
+        for (key, value) in [
+            ("databaseId", json!(1)),
+            ("workflowDatabaseId", json!(0)),
+            ("attempt", json!(0)),
+            ("url", json!("other")),
+            ("event", json!("workflow_dispatch")),
+            ("headBranch", json!("invalid..ref")),
+            ("headSha", json!("invalid")),
+        ] {
+            let mut invalid = wrong.clone();
+            invalid[key] = value;
+            let host = Host::new(vec![run_view(&invalid)]);
+            let (exit, result) = host.run(&args);
+            assert_eq!(exit, 2);
+            assert_eq!(
+                result["error"],
+                "GitHub returned a different or invalid push run"
+            );
+            assert_eq!(host.calls().len(), 1);
+        }
+    }
+    let host = Host::new(vec![run_view(&run)]);
+    let (exit, result) = host.run(&args);
+    assert_eq!(exit, 0);
+    assert_eq!(result["run"]["jobs"][0]["databaseId"], 41);
+    assert_eq!(result["run"]["jobs"][1]["databaseId"], 912);
+}

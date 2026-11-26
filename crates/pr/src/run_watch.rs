@@ -1,11 +1,25 @@
 //! A notification wakes a read of the original push run. Only GitHub's current
 //! run and job observations can settle the call.
-use crate::{Client, branch, notification::Frames, snapshot, verified_snapshot};
+#[cfg(verus_keep_ghost)]
+use super::super::{same_text, sha_format, valid_sha_text};
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_snapshot::{same_text, valid_sha_text};
+#[cfg(not(verus_keep_ghost))]
+use crate::{Client, branch, notification::Frames, verified_snapshot};
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::{prelude::*, string::StringSliceAdditionalSpecFns};
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    not(verus_keep_ghost),
+    derive(Debug, Deserialize, Serialize, PartialEq, Eq)
+)]
+#[cfg_attr(not(verus_keep_ghost), serde(rename_all = "camelCase"))]
 struct Step {
     number: u64,
     name: String,
@@ -13,9 +27,12 @@ struct Step {
     conclusion: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-struct Job {
+#[cfg_attr(
+    not(verus_keep_ghost),
+    derive(Debug, Deserialize, Serialize, PartialEq, Eq)
+)]
+#[cfg_attr(not(verus_keep_ghost), serde(rename_all = "camelCase"))]
+pub(crate) struct Job {
     database_id: u64,
     name: String,
     status: String,
@@ -23,6 +40,57 @@ struct Job {
     steps: Vec<Step>,
 }
 
+verus! {
+impl Job {
+    pub(crate) closed spec fn id(&self) -> u64 { self.database_id }
+}
+
+/// The native adapter supplies the existing Git branch parser's verdict.
+pub(crate) fn valid_push_header(
+    requested: u64, observed: u64, workflow: u64, attempt: u64, url: &str,
+    expected_url: &str, event: &str, valid_branch: bool, head: &str,
+) -> (valid: bool)
+    ensures valid == (requested == observed && workflow != 0 && attempt != 0
+        && url@ == expected_url@ && event@ == "push"@ && valid_branch && sha_format(head.spec_bytes())),
+{
+    requested == observed && workflow != 0 && attempt != 0
+        && same_text(url, expected_url) && same_text(event, "push")
+        && valid_branch && valid_sha_text(head)
+}
+
+pub(crate) open spec fn ordered_at(jobs: Seq<Job>, i: int) -> bool
+    recommends 0 <= i < jobs.len(),
+{
+    jobs[i].id() > (if i == 0 { 0 } else { jobs[i - 1].id() })
+}
+
+/// The caller sorts once. Every subsequent ID must exceed the previous one.
+pub(crate) fn valid_job_ids(jobs: &[Job]) -> (valid: bool)
+    ensures valid == (forall|i: int| 0 <= i < jobs.len() ==>
+        #[trigger] ordered_at(jobs@, i)),
+{
+    let mut index = 0;
+    let mut previous = 0;
+    while index < jobs.len()
+        invariant index <= jobs.len(),
+            previous == (if index == 0 { 0 } else { jobs@[index-1].id() }),
+            forall|i: int| 0 <= i < index ==> #[trigger] ordered_at(jobs@, i),
+        decreases jobs.len() - index,
+    {
+        let id = jobs[index].database_id;
+        if id <= previous {
+            assert(!ordered_at(jobs@, index as int));
+            return false;
+        }
+        assert(ordered_at(jobs@, index as int));
+        previous = id;
+        index += 1;
+    }
+    true
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct Run {
@@ -38,6 +106,7 @@ struct Run {
     jobs: Vec<Job>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn read(client: &mut Client, id: u64) -> Result<Run, String> {
     let raw = client.call(vec![
         "run".into(), "view".into(), id.to_string(), "--repo".into(),
@@ -50,28 +119,27 @@ fn read(client: &mut Client, id: u64) -> Result<Run, String> {
         "https://github.com/{}/actions/runs/{id}",
         client.config.repository
     );
-    if run.database_id != id
-        || run.workflow_database_id == 0
-        || run.attempt == 0
-        || run.url != expected_url
-        || run.event != "push"
-        || !branch(&run.head_branch)
-        || !snapshot::sha(&run.head_sha)
-    {
+    if !valid_push_header(
+        id,
+        run.database_id,
+        run.workflow_database_id,
+        run.attempt,
+        &run.url,
+        &expected_url,
+        &run.event,
+        branch(&run.head_branch),
+        &run.head_sha,
+    ) {
         return Err("GitHub returned a different or invalid push run".into());
     }
     run.jobs.sort_by_key(|job| job.database_id);
-    if run.jobs.iter().any(|job| job.database_id == 0)
-        || run
-            .jobs
-            .windows(2)
-            .any(|pair| pair[0].database_id == pair[1].database_id)
-    {
+    if !valid_job_ids(&run.jobs) {
         return Err("invalid workflow job identity".into());
     }
     Ok(run)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn notification(repo: &str, run: &Run, body: &Value) -> Option<Value> {
     use verified_snapshot::{PushNotice, push_notice_matches};
 
@@ -120,6 +188,7 @@ fn notification(repo: &str, run: &Run, body: &Value) -> Option<Value> {
     })
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn outcome(run: &Run, expected: &str, changed: bool) -> Result<&'static str, String> {
     verified_snapshot::workflow_outcome(
         &run.status,
@@ -131,6 +200,7 @@ fn outcome(run: &Run, expected: &str, changed: bool) -> Result<&'static str, Str
     .map_err(str::to_owned)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn watch(client: &mut Client, id: u64, expected: Option<&str>) -> Result<(), String> {
     client.result["run_id"] = json!(id);
     let first = read(client, id)?;
