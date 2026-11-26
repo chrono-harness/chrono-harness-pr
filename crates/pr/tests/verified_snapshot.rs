@@ -20,7 +20,26 @@ use vstd::string::StringSliceAdditionalSpecFns;
 #[cfg(verus_keep_ghost)]
 use vstd::vpanic as panic;
 
+#[allow(dead_code)]
+#[path = "../src/main.rs"]
+mod publication;
+
 verus! {
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn stdout_write_boundaries() {
+    use publication::{WriteStep, write_step, publication_exit};
+    expect_snapshot_true(matches!(write_step::<u8>(0, 0, Ok(0)), WriteStep::Flush));
+    expect_snapshot_true(matches!(write_step::<u8>(12, 4, Ok(0)), WriteStep::WriteZero));
+    expect_snapshot_true(matches!(write_step::<u8>(12, 4, Ok(2)), WriteStep::Advance(6)));
+    expect_snapshot_true(matches!(write_step::<u8>(12, 4, Ok(8)), WriteStep::Flush));
+    expect_snapshot_true(matches!(write_step::<u8>(usize::MAX, usize::MAX - 1, Ok(1)), WriteStep::Flush));
+    expect_snapshot_true(matches!(write_step::<u8>(12, 4, Err((true, 8))), WriteStep::Retry));
+    expect_snapshot_true(matches!(write_step::<u8>(12, 4, Err((false, 9))), WriteStep::Failed(9)));
+    expect_snapshot_true(publication_exit(4, true) == 4);
+    expect_snapshot_true(publication_exit(4, false) == 2);
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn gh_completion_retains_errors_and_selects_only_successful_replies() {
     use policy::{CommandReply::*, command_reply};

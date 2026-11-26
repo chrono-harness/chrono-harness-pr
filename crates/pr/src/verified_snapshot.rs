@@ -9,6 +9,10 @@ use vstd::prelude::*;
 use vstd::string::StringSliceAdditionalSpecFns;
 
 #[cfg(verus_keep_ghost)]
+#[path = "main.rs"]
+mod publication;
+
+#[cfg(verus_keep_ghost)]
 #[path = "lib.rs"]
 mod client;
 #[cfg(not(verus_keep_ghost))]
