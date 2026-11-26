@@ -207,7 +207,11 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".chrono-harness/workflow.json",
@@ -461,7 +465,11 @@
           "kind": "test-execution",
           "to": "test:pr-linux-process-group"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/pr/Cargo.toml",
@@ -477,7 +485,11 @@
           "kind": "test-execution",
           "to": "test:pr-linux-process-group"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/pr/src/gh_process.rs",
