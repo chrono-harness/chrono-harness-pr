@@ -10,10 +10,6 @@ updates:
       interval: daily
     target-branch: dev
   - directory: /crates/pr
-    groups:
-      cargo:
-        patterns:
-        - '*'
     package-ecosystem: cargo
     schedule:
       interval: daily

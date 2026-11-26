@@ -58,4 +58,4 @@ install_resolver_artifact: {"version": "0.1.1", "linux_sha256": "8fd9f01086ad928
 dependabot_auto_merge: true
 dependabot_updates:
 - {"package-ecosystem": "github-actions", "directory": "/", "schedule": {"interval": "daily"}, "groups": {"github-actions": {"patterns": ["*"]}}}
-- {"package-ecosystem": "cargo", "schedule": {"interval": "daily"}, "groups": {"cargo": {"patterns": ["*"]}}, "directory": "/crates/pr"}
+- {"package-ecosystem": "cargo", "schedule": {"interval": "daily"}, "directory": "/crates/pr"}
