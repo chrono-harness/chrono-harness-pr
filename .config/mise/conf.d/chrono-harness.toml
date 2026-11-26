@@ -152,9 +152,9 @@ bin = "chrono-worktree"
 linux-x64 = { url = "https://github.com/chrono-harness/chrono-harness-worktree/releases/download/v0.1.1/chrono-worktree-linux-x86_64", checksum = "sha256:7e3f28d00b70eea4b350ff0f3158de5ccd66cc7ac0dba7dcc4081f97c71937de" }
 macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-worktree/releases/download/v0.1.1/chrono-worktree-macos-aarch64", checksum = "sha256:04359c6037db6ab13f9d439bafc58b8b553cce41109d49d8f1e0374701de3a11" }
 
-[tools.rust]
-version = "1.99.1"
-profile = "minimal"
+[tools]
+# Native Cargo uses the first version. The pinned Verus binary loads Rust 1.95.0.
+rust = [{ version = "1.99.1", profile = "minimal" }, { version = "1.95.0", profile = "minimal" }]
 
 [tools."http:verus"]
 version = "0.2026.04.24.f8e1704"
