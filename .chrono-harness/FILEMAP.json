@@ -405,17 +405,6 @@
       "edges": []
     },
     {
-      "path": ".github/workflows/observe-landing.yml",
-      "owner": "host",
-      "surface": "product",
-      "cost": "unmeasured",
-      "edges": [],
-      "verification": {
-        "role": "data",
-        "roots": []
-      }
-    },
-    {
       "path": ".github/workflows/release.yml",
       "owner": "host",
       "surface": "product",
