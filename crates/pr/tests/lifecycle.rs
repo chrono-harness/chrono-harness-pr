@@ -1004,15 +1004,32 @@ fn tracks_its_created_pr_through_a_failed_readback_until_verified_terminal() {
 #[test]
 #[cfg(not(verus_keep_ghost))]
 fn ordinary_queries_make_no_state_and_duplicate_remote_json_never_passes() {
-    let mut ambiguous = api(snapshot());
-    ambiguous["stdout"] = json!(ambiguous["stdout"].as_str().unwrap().replacen(
-        "\"number\":42",
-        "\"number\":1,\"number\":42",
-        1
-    ));
-    let h = Host::new(vec![api(snapshot()), ambiguous]);
+    let good = api(snapshot());
+    let raw = good["stdout"].as_str().unwrap();
+    let cases = [
+        (r#""number":42"#, r#""number":1,"number":42"#, "number"),
+        (r#""number":42"#, r#""nu\u006dber":1,"number":42"#, "number"),
+        (r#""data":"#, r#""data":null,"data":"#, "data"),
+    ];
+    let mut replies = vec![good.clone()];
+    for (key, repeated, _) in cases {
+        assert!(raw.contains(key));
+        let mut reply = good.clone();
+        reply["stdout"] = json!(raw.replacen(key, repeated, 1));
+        replies.push(reply);
+    }
+    let h = Host::new(replies);
     assert_eq!(h.status().0, 0);
-    assert_eq!(h.status().0, 2);
+    for (_, _, key) in cases {
+        let (code, report) = h.status();
+        assert_eq!(code, 2);
+        assert!(
+            report
+                .to_string()
+                .contains(&format!("duplicate JSON member {key}")),
+            "{report}"
+        );
+    }
     assert!(reminders(&h).is_empty());
     assert!(
         !h.root
