@@ -29,7 +29,7 @@ test = false
 bench = false
 
 [dependencies]
-verus_builtin_macros = "=0.0.0-2026-04-20-1748"
+verus_builtin_macros = "=0.0.0-2026-11-22-0344"
 subprocess = "1.2.3"
 libc = "0.2"
 which = "8"
