@@ -104,7 +104,7 @@ jobs:
       - name: Bootstrap registered tools
         shell: bash
         run: |
-          '/bin/sh' '.chrono-harness/ci/install.sh'
+          '/bin/sh' '-ec' '/bin/sh .chrono-harness/ci/install.sh && rustup run --install 1.95.0 rustc --version'
       - name: Canonical harness check
         shell: bash
         env:

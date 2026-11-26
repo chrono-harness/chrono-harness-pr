@@ -33,7 +33,8 @@
       "timeout_minutes": 45,
       "bootstrap": [
         "/bin/sh",
-        ".chrono-harness/ci/install.sh"
+        "-ec",
+        "/bin/sh .chrono-harness/ci/install.sh && rustup run --install 1.95.0 rustc --version"
       ],
       "context_path": ".chrono-harness/state/pr/event.json",
       "artifact_directory": ".chrono-harness/state/pr/"

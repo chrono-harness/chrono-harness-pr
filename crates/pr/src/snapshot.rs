@@ -388,14 +388,14 @@ pub fn pull_request_merged(state: &str) -> (merged: bool)
 /// accepting a response, because selecting one of two remote facts is ambiguous.
 #[cfg(not(verus_keep_ghost))]
 pub(crate) fn response(bytes: &[u8]) -> Result<Value, String> {
-    use json_syntax::{FragmentRef, Parse};
+    use json_syntax::{JsonFragment, JsonParse, JsonValue};
     let parsed = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-    let (syntax, _) = json_syntax::Value::parse_slice(bytes).map_err(|e| e.to_string())?;
+    let (syntax, _) = JsonValue::parse_slice(bytes).map_err(|e| e.to_string())?;
     for (_, fragment) in syntax.traverse() {
-        if let FragmentRef::Value(json_syntax::Value::Object(object)) = fragment {
-            for entry in object.entries() {
-                if object.redundant_index_of(&entry.key).is_some() {
-                    return Err(format!("duplicate JSON member {}", entry.key));
+        if let JsonFragment::Value(JsonValue::Object(object)) = fragment {
+            for (key, _) in object.entries() {
+                if object.redundant_index_of(key).is_some() {
+                    return Err(format!("duplicate JSON member {key}"));
                 }
             }
         }
