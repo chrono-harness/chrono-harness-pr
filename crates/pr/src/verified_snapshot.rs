@@ -9,6 +9,10 @@ use vstd::prelude::*;
 use vstd::string::StringSliceAdditionalSpecFns;
 
 #[cfg(verus_keep_ghost)]
+#[path = "reminders.rs"]
+pub mod reminders;
+
+#[cfg(verus_keep_ghost)]
 #[path = "main.rs"]
 mod publication;
 

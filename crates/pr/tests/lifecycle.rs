@@ -1024,6 +1024,63 @@ fn ordinary_queries_make_no_state_and_duplicate_remote_json_never_passes() {
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn reminder_conflicts_keep_the_first_row_and_close_only_the_observed_repository() {
+    let mut closed = snapshot();
+    closed["data"]["repository"]["pullRequest"]["state"] = json!("CLOSED");
+    let host = Host::new(vec![
+        resolve(),
+        list(json!([])),
+        json!({"prefix":["pr","create"],"stdout":"https://github.com/example/host/pull/42"}),
+        api(snapshot()),
+        api(closed),
+    ]);
+    let isolated = Host::new(vec![]);
+    let path = host
+        .root
+        .path()
+        .join(".chrono-harness/pr-reminders.sqlite3");
+    assert!(reminders(&host).is_empty());
+    assert!(!path.exists());
+
+    // Simulate the original registration being retried for the same GitHub number.
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch(
+        "CREATE TABLE reminder(repository TEXT NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL,
+         expires INTEGER NOT NULL, PRIMARY KEY(repository,number)) WITHOUT ROWID;",
+    ).unwrap();
+    let deadline: i64 = db
+        .query_row("SELECT unixepoch()+600", [], |row| row.get(0))
+        .unwrap();
+    for repo in ["example/host", "example/other"] {
+        db.execute(
+            "INSERT INTO reminder VALUES (?1,42,?2,?3)",
+            rusqlite::params![repo, OTHER, deadline],
+        )
+        .unwrap();
+    }
+    assert_eq!(host.run(&open_args()).0, 0);
+    let rows = reminders(&host);
+    assert_eq!(rows.len(), 2);
+    for (row, repo) in rows.iter().zip(["example/host", "example/other"]) {
+        assert_eq!(row["repository"], repo);
+        assert_eq!(row["head_at_creation"], OTHER);
+        assert_eq!(row["expires_at_unix"], deadline);
+    }
+    assert!(reminders(&isolated).is_empty());
+    assert_eq!(host.status().0, 1);
+    assert_eq!(reminders(&host), vec![rows[1].clone()]);
+    assert!(reminders(&isolated).is_empty());
+    assert!(
+        !isolated
+            .root
+            .path()
+            .join(".chrono-harness/pr-reminders.sqlite3")
+            .exists()
+    );
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn expired_reminders_are_removed_from_local_storage_without_a_remote_query() {
     let h = Host::new(vec![
         resolve(),

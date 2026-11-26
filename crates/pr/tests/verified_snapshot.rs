@@ -26,6 +26,21 @@ mod publication;
 
 verus! {
 
+#[cfg(verus_keep_ghost)]
+fn local_reminder_opens_only_the_authorized_store(head: &str) {
+    use policy::reminders::{opens_database, reminder_change, ReminderChange};
+    expect_snapshot_true(!opens_database(false, false));
+    expect_snapshot_true(opens_database(false, true));
+    expect_snapshot_true(opens_database(true, false));
+    expect_snapshot_true(opens_database(true, true));
+    let kept = reminder_change(Some(head));
+    match kept {
+        ReminderChange::RememberFirst(value) => { assert(value@ == head@); },
+        ReminderChange::Remove => { expect_snapshot_true(false); },
+    }
+    expect_snapshot_true(matches!(reminder_change(None), ReminderChange::Remove));
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn stdout_write_boundaries() {
     use publication::{WriteStep, write_step, publication_exit};
