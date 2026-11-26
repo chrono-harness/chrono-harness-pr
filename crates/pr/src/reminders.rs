@@ -1,21 +1,61 @@
 //! Per-checkout reminders for PRs created by this tool. GitHub owns PR status.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub enum ReminderChange<'a> {
+    RememberFirst(&'a str),
+    Remove,
+}
+
+pub fn reminder_change(head: Option<&str>) -> (change: ReminderChange<'_>)
+    ensures match (head, change) {
+        (Some(given), ReminderChange::RememberFirst(first)) => first@ == given@,
+        (None, ReminderChange::Remove) => true,
+        _ => false,
+    },
+{
+    match head {
+        Some(value) => ReminderChange::RememberFirst(value),
+        None => ReminderChange::Remove,
+    }
+}
+
+/// A reader or a terminal query can open an existing database without creating an empty one.
+pub fn opens_database(present: bool, create: bool) -> (open: bool)
+    ensures open == (present || create),
+{ present || create }
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{CliOutput, verified_snapshot};
-use rusqlite::{Connection, functions::FunctionFlags, params};
+#[cfg(not(verus_keep_ghost))]
+use rusqlite::{Connection, OpenFlags, functions::FunctionFlags, params};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{error::Error, ffi::OsString, path::Path, time::Duration};
 
+#[cfg(not(verus_keep_ghost))]
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
+#[cfg(not(verus_keep_ghost))]
 fn database(root: &Path, create: bool) -> Result<Option<Connection>> {
     let dir = root.join(".chrono-harness");
     let path = dir.join("pr-reminders.sqlite3");
-    if !path.try_exists()? && !create {
+    if !opens_database(path.try_exists()?, create) {
         return Ok(None);
     }
     if dir.canonicalize()? != dir || path.symlink_metadata().is_ok_and(|m| m.is_symlink()) {
         return Err("reminder storage must belong to this checkout".into());
     }
-    let db = Connection::open(path)?;
+    let mut flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    if create {
+        flags |= OpenFlags::SQLITE_OPEN_CREATE;
+    }
+    let db = Connection::open_with_flags(path, flags)?;
     db.busy_timeout(Duration::from_secs(5))?;
     db.pragma_update(None, "secure_delete", true)?;
     let mode: i64 = db.pragma_query_value(None, "auto_vacuum", |row| row.get(0))?;
@@ -49,30 +89,33 @@ fn database(root: &Path, create: bool) -> Result<Option<Connection>> {
     Ok(Some(db))
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn expire(root: &Path) -> Result<()> {
     database(root, false)?;
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn update(root: &Path, repository: &str, number: u64, head: Option<&str>) -> Result<()> {
-    let Some(db) = database(root, head.is_some())? else {
+    let change = reminder_change(head);
+    let Some(db) = database(root, matches!(change, ReminderChange::RememberFirst(_)))? else {
         return Ok(());
     };
-    if let Some(head) = head {
-        db.execute(
+    match change {
+        ReminderChange::RememberFirst(head) => db.execute(
             "INSERT INTO reminder VALUES (?1,?2,?3,reminder_deadline(unixepoch()))
                     ON CONFLICT(repository,number) DO NOTHING",
             params![repository, number, head],
-        )?;
-    } else {
-        db.execute(
+        )?,
+        ReminderChange::Remove => db.execute(
             "DELETE FROM reminder WHERE repository=?1 AND number=?2",
             params![repository, number],
-        )?;
-    }
+        )?,
+    };
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn read(raw: &[OsString]) -> Result<Vec<Value>> {
     let root = match raw {
         [_] => Path::new("."),
@@ -97,6 +140,7 @@ fn read(raw: &[OsString]) -> Result<Vec<Value>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn list(raw: &[OsString]) -> CliOutput {
     let (exit_code, body) = match read(raw) {
         Ok(prs) => (
