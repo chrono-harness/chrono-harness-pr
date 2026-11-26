@@ -22,7 +22,7 @@ jobs:
       unit_pr: ${{ steps.detect.outputs.unit_pr }}
     steps:
       - name: Acquire declared detector source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@v4.4.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 2
@@ -54,7 +54,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out exact candidate
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@v4.4.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 2
@@ -79,7 +79,7 @@ jobs:
           '.chrono-harness/bin/chrono-ci' production --host-root . --config '.chrono-harness/ci/units.json' --unit 'linux_process_group' --github-output "$GITHUB_OUTPUT"
       - name: Preserve actual check evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: chrono-unit-linux_process_group-${{ github.run_id }}-${{ github.run_attempt }}
           path: ".chrono-harness/state/linux-process-group/"
@@ -95,7 +95,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out exact candidate
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@v4.4.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 2
@@ -120,7 +120,7 @@ jobs:
           '.chrono-harness/bin/chrono-ci' production --host-root . --config '.chrono-harness/ci/units.json' --unit 'pr' --github-output "$GITHUB_OUTPUT"
       - name: Preserve actual check evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: chrono-unit-pr-${{ github.run_id }}-${{ github.run_attempt }}
           path: ".chrono-harness/state/pr/"
@@ -134,7 +134,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out exact candidate
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@v4.4.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 2
@@ -156,7 +156,7 @@ jobs:
           '.chrono-harness/bin/chrono-harness' 'check' '--collect'
       - name: Preserve actual check evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: chrono-collection-${{ github.run_id }}-${{ github.run_attempt }}
           path: ".chrono-harness/state/collection/"

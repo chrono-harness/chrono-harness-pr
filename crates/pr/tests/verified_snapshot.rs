@@ -2,6 +2,10 @@
 #![allow(unexpected_cfgs)]
 
 #[cfg(verus_keep_ghost)]
+#[path = "workflow_actions.rs"]
+mod workflow_actions;
+
+#[cfg(verus_keep_ghost)]
 #[path = "lifecycle.rs"]
 mod lifecycle;
 

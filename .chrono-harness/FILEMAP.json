@@ -49,7 +49,11 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".chrono-harness/ci/install.sh",
@@ -72,14 +76,22 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".chrono-harness/config.json",
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".chrono-harness/install-tools.sh",
@@ -248,7 +260,11 @@
           "kind": "test-execution",
           "to": "test:pr-linux-process-group"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".config/mise/conf.d/selected-chrono-harness.toml",
@@ -371,6 +387,26 @@
       "edges": []
     },
     {
+      "path": ".github/workflows/actions.lock",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
       "path": ".github/workflows/check.yml",
       "owner": "host",
       "surface": "product",
@@ -384,7 +420,11 @@
           "kind": "test-execution",
           "to": "test:pr-linux-process-group"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".github/workflows/dependabot-auto-merge.yml",
@@ -402,7 +442,21 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/pr/tests/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot-tests"
+          }
+        ]
+      }
     },
     {
       "path": ".github/workflows/release.yml",
@@ -414,7 +468,16 @@
           "kind": "test-execution",
           "to": "test:pr-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/pr/tests/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot-tests"
+          }
+        ]
+      }
     },
     {
       "path": ".gitignore",
@@ -809,6 +872,31 @@
       ],
       "verification": {
         "role": "specification",
+        "roots": [
+          {
+            "path": "crates/pr/tests/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/pr/tests/workflow_actions.rs",
+      "owner": "pr-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:pr-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:pr-linux-process-group"
+        }
+      ],
+      "verification": {
+        "role": "program",
         "roots": [
           {
             "path": "crates/pr/tests/verified_snapshot.rs",
