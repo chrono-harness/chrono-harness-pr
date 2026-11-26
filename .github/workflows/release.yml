@@ -25,7 +25,7 @@ jobs:
       preview: ${{ steps.plan.outputs.preview }}
       proof: ${{ steps.plan.outputs.proof }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - name: Install the release verifier
@@ -60,7 +60,7 @@ jobs:
             output: linux
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: refs/heads/dev
           fetch-depth: 0
@@ -87,7 +87,7 @@ jobs:
           "./$build" "$PLATFORM" "$RUNNER_TEMP/dist"
       - name: Upload the exercised binary
         id: archive
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ matrix.platform }}-${{ needs.source.outputs.sha }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/dist/
@@ -122,11 +122,11 @@ jobs:
       group: publish-${{ needs.source.outputs.tag }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - if: needs.source.outputs.mode == 'preview'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           path: ${{ runner.temp }}/dist
           artifact-ids: ${{ fromJSON(needs.build.outputs.linux).id }},${{ fromJSON(needs.build.outputs.macos).id }}
