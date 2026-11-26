@@ -18,7 +18,7 @@ mod publication;
 
 #[cfg(verus_keep_ghost)]
 #[path = "lib.rs"]
-mod client;
+pub(crate) mod client;
 #[cfg(not(verus_keep_ghost))]
 pub use crate::{record_pr_observation, snapshot::pull_request_merged};
 #[cfg(verus_keep_ghost)]

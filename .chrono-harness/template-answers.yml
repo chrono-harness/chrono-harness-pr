@@ -48,7 +48,7 @@ release_plan:
         step: Read the landed pull request with the installed release
         workflow: pr-adoption.yml
     kind: binary
-    version: 0.1.14
+    version: 0.1.15
 repository: chrono-harness/chrono-harness-pr
 required_check: check
 strict_host_adapters: {}

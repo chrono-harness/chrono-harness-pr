@@ -6,8 +6,8 @@ mod gh_process;
 mod notification;
 #[cfg(not(verus_keep_ghost))]
 mod reminders;
-#[cfg(not(verus_keep_ghost))]
-mod run_watch;
+#[path = "run_watch.rs"]
+pub(crate) mod run_watch;
 #[path = "snapshot.rs"]
 pub(crate) mod snapshot;
 #[cfg(not(verus_keep_ghost))]
