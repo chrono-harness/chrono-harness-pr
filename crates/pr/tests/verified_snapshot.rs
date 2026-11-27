@@ -30,6 +30,28 @@ mod publication;
 
 verus! {
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn group_exit_requires_observed_absence_or_the_requested_pidfd_event() {
+    if !policy::confirmed_absent(-1, true) { panic!(); }
+    if policy::confirmed_absent(-1, false) { panic!(); }
+    if policy::confirmed_absent(0, true) { panic!(); }
+    proof {
+        assert((1i16 & (1i16 | 16i16)) == 1i16) by(bit_vector);
+        assert((16i16 & (1i16 | 16i16)) == 16i16) by(bit_vector);
+        assert((24i16 & (16i16 | 16i16)) == 16i16) by(bit_vector);
+        assert((1i16 & (16i16 | 16i16)) == 0i16) by(bit_vector);
+        assert((8i16 & (1i16 | 16i16)) == 0i16) by(bit_vector);
+    }
+    // IN=1, ERR=8, HUP=16. POLLIN can describe an exited, unreaped child.
+    if !policy::observed_pidfd_event(1, 1, 1, 16) { panic!(); }
+    if !policy::observed_pidfd_event(1, 16, 1, 16) { panic!(); }
+    if !policy::observed_pidfd_event(1, 24, 16, 16) { panic!(); }
+    if policy::observed_pidfd_event(1, 1, 16, 16) { panic!(); }
+    if policy::observed_pidfd_event(1, 8, 1, 16) { panic!(); }
+    if policy::observed_pidfd_event(0, 16, 16, 16) { panic!(); }
+    if policy::observed_pidfd_event(-1, 16, 16, 16) { panic!(); }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn adjacent_notifications_keep_the_tail_and_enforce_the_accumulated_limit() {
     use policy::{FramePart, frame_part};
     let input = [255u8, 10u8, 7u8, 10u8];

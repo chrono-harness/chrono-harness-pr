@@ -32,12 +32,18 @@ mod gh_process;
 mod notification;
 #[cfg(verus_keep_ghost)]
 pub use self::{
-    gh_process::append_output,
+    gh_process::{
+        append_output,
+        group::{confirmed_absent, observed_pidfd_event},
+    },
     notification::{FramePart, frame_part},
 };
 #[cfg(not(verus_keep_ghost))]
 pub use crate::{
-    gh_process::append_output,
+    gh_process::{
+        append_output,
+        group::{confirmed_absent, observed_pidfd_event},
+    },
     notification::{FramePart, frame_part},
 };
 

@@ -1,5 +1,5 @@
-#[cfg(not(verus_keep_ghost))]
-mod group;
+#[path = "gh_process/group.rs"]
+pub(crate) mod group;
 
 #[cfg(not(verus_keep_ghost))]
 use std::collections::BTreeMap;

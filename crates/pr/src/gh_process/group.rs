@@ -1,15 +1,39 @@
 //! Wait on the process group created for this gh invocation. The direct child
 //! stays unreaped throughout observation, pinning its PID and group identity.
-use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-use std::time::Instant;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
 
+verus! {
+/// Only a failed lookup reporting ESRCH confirms an empty process group.
+pub fn confirmed_absent(result: i32, missing: bool) -> (absent: bool)
+    ensures absent == (result < 0 && missing),
+{
+    result < 0 && missing
+}
+
+/// A positive poll count alone may indicate an error or an unrelated event.
+pub fn observed_pidfd_event(count: i32, returned: i16, requested: i16, hangup: i16) -> (observed: bool)
+    ensures observed == (count > 0 && (returned & (requested | hangup)) != 0),
+{
+    count > 0 && (returned & (requested | hangup)) != 0
+}
+}
+#[cfg(not(verus_keep_ghost))]
+use std::io;
+#[cfg(not(verus_keep_ghost))]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+#[cfg(not(verus_keep_ghost))]
+use std::time::Instant;
+#[cfg(not(verus_keep_ghost))]
 fn remaining(deadline: Instant) -> io::Result<std::time::Duration> {
     deadline
         .checked_duration_since(Instant::now())
         .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "gh process group timed out"))
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn wait(pid: u32, deadline: Instant) -> io::Result<()> {
     let group = pid as libc::pid_t;
     wait_exit(group, group, deadline)?;
@@ -21,6 +45,7 @@ pub(super) fn wait(pid: u32, deadline: Instant) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn belongs_to_group(pid: libc::pid_t, group: libc::pid_t) -> io::Result<bool> {
     let observed = unsafe { libc::getpgid(pid) };
     if observed >= 0 {
@@ -37,11 +62,12 @@ fn belongs_to_group(pid: libc::pid_t, group: libc::pid_t) -> io::Result<bool> {
 /// Once the leader is reaped, an empty process group is definitive. A still
 /// existing group could contain a late fork or have a recycled ID. Preserve
 /// the original unknown outcome and never signal that now unpinned identity.
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn verify_empty(pid: u32) -> io::Result<()> {
     let group = i32::try_from(pid).map_err(io::Error::other)?;
     let result = unsafe { libc::kill(-group, 0) };
     let error = io::Error::last_os_error();
-    if result < 0 && error.raw_os_error() == Some(libc::ESRCH) {
+    if confirmed_absent(result, error.raw_os_error() == Some(libc::ESRCH)) {
         return Ok(());
     }
     if result < 0 {
@@ -52,7 +78,7 @@ pub(super) fn verify_empty(pid: u32) -> io::Result<()> {
     ))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(verus_keep_ghost)))]
 fn live_member(group: libc::pid_t, _deadline: Instant) -> io::Result<Option<libc::pid_t>> {
     // Darwin sys/proc_info.h, omitted by the Rust libc bindings.
     const PROC_PGRP_ONLY: u32 = 2;
@@ -103,7 +129,7 @@ fn live_member(group: libc::pid_t, _deadline: Instant) -> io::Result<Option<libc
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(verus_keep_ghost)))]
 fn wait_exit(pid: libc::pid_t, group: libc::pid_t, deadline: Instant) -> io::Result<()> {
     let raw = unsafe { libc::kqueue() };
     if raw < 0 {
@@ -158,7 +184,7 @@ fn wait_exit(pid: libc::pid_t, group: libc::pid_t, deadline: Instant) -> io::Res
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(verus_keep_ghost)))]
 fn live_member(group: libc::pid_t, deadline: Instant) -> io::Result<Option<libc::pid_t>> {
     use std::fs;
     for entry in fs::read_dir("/proc")? {
@@ -208,12 +234,12 @@ fn live_member(group: libc::pid_t, deadline: Instant) -> io::Result<Option<libc:
     Ok(None)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(verus_keep_ghost)))]
 fn wait_exit(pid: libc::pid_t, group: libc::pid_t, deadline: Instant) -> io::Result<()> {
     wait_pidfd(pid, group, deadline, libc::POLLIN)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(verus_keep_ghost)))]
 fn wait_pidfd(
     pid: libc::pid_t,
     group: libc::pid_t,
@@ -242,7 +268,7 @@ fn wait_pidfd(
         let timeout = remaining(deadline)?;
         let millis = i32::try_from(timeout.as_millis().saturating_add(1)).unwrap_or(i32::MAX);
         let n = unsafe { libc::poll(&mut ev, 1, millis) };
-        if n > 0 && ev.revents & (event | libc::POLLHUP) != 0 {
+        if observed_pidfd_event(n, ev.revents, event, libc::POLLHUP) {
             return Ok(());
         }
         if n > 0 {
