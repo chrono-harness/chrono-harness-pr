@@ -24,6 +24,23 @@ pub use crate::{record_pr_observation, snapshot::pull_request_merged};
 #[cfg(verus_keep_ghost)]
 pub use client::{record_pr_observation, snapshot::pull_request_merged};
 
+#[cfg(verus_keep_ghost)]
+#[path = "gh_process.rs"]
+mod gh_process;
+#[cfg(verus_keep_ghost)]
+#[path = "notification.rs"]
+mod notification;
+#[cfg(verus_keep_ghost)]
+pub use self::{
+    gh_process::append_output,
+    notification::{FramePart, frame_part},
+};
+#[cfg(not(verus_keep_ghost))]
+pub use crate::{
+    gh_process::append_output,
+    notification::{FramePart, frame_part},
+};
+
 verus! {
 
 /// Only a successfully completed gh invocation supplies bytes for an operation response.

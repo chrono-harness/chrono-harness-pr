@@ -1,6 +1,8 @@
 //! One existing GitHub webhook delivery may wake a pending query. The final
 //! state is read independently from GitHub for the original PR and commit.
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     fs::File,
     io::{self, BufRead, BufReader, IsTerminal},
@@ -8,13 +10,71 @@ use std::{
     time::Instant,
 };
 
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub enum FramePart<'a> {
+    EndOfStream,
+    AboveLimit,
+    Bytes { payload: &'a [u8], consumed: usize, complete: bool },
+}
+
+/// LF terminates the current frame. Bytes after it stay in the input buffer.
+pub fn frame_part(bytes: &[u8], retained: usize, limit: usize) -> (part: FramePart<'_>)
+    ensures
+        (part is EndOfStream) == bytes.is_empty(),
+        match part {
+            FramePart::EndOfStream => true,
+            FramePart::AboveLimit => {
+                &&& !bytes.is_empty()
+                &&& forall|i: int| 0 <= i < bytes.len() && retained as int + i <= limit ==>
+                    #[trigger] bytes@[i] != 10u8
+                &&& retained as int + bytes.len() > limit
+            },
+            FramePart::Bytes { payload, consumed, complete } => {
+                &&& !bytes.is_empty()
+                &&& retained as int + payload.len() <= limit
+                &&& consumed == payload.len() as int + if complete { 1int } else { 0int }
+                &&& consumed <= bytes.len()
+                &&& payload@ == bytes@.take(payload.len() as int)
+                &&& forall|i: int| 0 <= i < payload.len() ==> #[trigger] bytes@[i] != 10u8
+                &&& if complete { bytes@[payload.len() as int] == 10u8 } else { consumed == bytes.len() }
+            },
+        },
+{
+    if bytes.is_empty() { return FramePart::EndOfStream; }
+    if retained > limit { return FramePart::AboveLimit; }
+    let room = limit - retained;
+    let mut i = 0;
+    while i < bytes.len()
+        invariant
+            0 <= i <= bytes.len(), i <= room, room == limit - retained,
+            forall|j: int| 0 <= j < i ==> #[trigger] bytes@[j] != 10u8,
+        decreases bytes.len() - i,
+    {
+        if bytes[i] == 10u8 {
+            let (payload, _) = bytes.split_at(i);
+            return FramePart::Bytes { payload, consumed: i + 1, complete: true };
+        }
+        if i == room { return FramePart::AboveLimit; }
+        i += 1;
+    }
+    FramePart::Bytes { payload: bytes, consumed: i, complete: false }
+}
+}
+
 /// Keep the unread suffix when a single pipe write contains several deliveries.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Frames {
     input: BufReader<File>,
     deadline: Instant,
     limit: usize,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Frames {
     pub(crate) fn stdin(deadline: Instant, limit: usize) -> Result<Self, String> {
         let stdin = io::stdin();
@@ -66,23 +126,31 @@ impl Frames {
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                 Err(error) => return Err(error.to_string()),
             };
-            if bytes.is_empty() {
-                return Err("notification channel closed before a complete frame".into());
-            }
-            let end = bytes.iter().position(|b| *b == b'\n');
-            let length = end.unwrap_or(bytes.len());
-            if frame.len().saturating_add(length) > self.limit {
-                return Err("completion notification exceeds configured byte limit".into());
-            }
-            frame.extend_from_slice(&bytes[..length]);
-            self.input.consume(length + usize::from(end.is_some()));
-            if end.is_some() {
+            let (consumed, complete) = match frame_part(bytes, frame.len(), self.limit) {
+                FramePart::EndOfStream => {
+                    return Err("notification channel closed before a complete frame".into());
+                }
+                FramePart::AboveLimit => {
+                    return Err("completion notification exceeds configured byte limit".into());
+                }
+                FramePart::Bytes {
+                    payload,
+                    consumed,
+                    complete,
+                } => {
+                    frame.extend_from_slice(payload);
+                    (consumed, complete)
+                }
+            };
+            self.input.consume(consumed);
+            if complete {
                 return crate::snapshot::response(&frame);
             }
         }
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn pr_event(
     body: &Value,
     repository: &str,
