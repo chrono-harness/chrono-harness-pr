@@ -1,30 +1,62 @@
+#[cfg(not(verus_keep_ghost))]
 mod group;
 
+#[cfg(not(verus_keep_ghost))]
 use std::collections::BTreeMap;
+#[cfg(not(verus_keep_ghost))]
 use std::io::{self, Write};
+#[cfg(not(verus_keep_ghost))]
 use std::path::Path;
+#[cfg(not(verus_keep_ghost))]
 use std::time::{Duration, Instant};
 
+#[cfg(not(verus_keep_ghost))]
 use subprocess::{Exec, ExecExt, JobExt, Redirection};
 
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// Append the portion accepted by Write. A full stream still accepts an empty write.
+pub fn append_output(buffer: &mut Vec<u8>, input: &[u8], limit: usize) -> (written: Option<usize>)
+    ensures
+        written.is_some() == (old(buffer).len() <= limit
+            && (input.len() == 0 || old(buffer).len() < limit)),
+        match written {
+            Some(count) => {
+                &&& count == if input.len() <= limit as int - old(buffer).len() { input.len() as int }
+                    else { limit as int - old(buffer).len() }
+                &&& count <= input.len()
+                &&& buffer@ == old(buffer)@ + input@.take(count as int)
+                &&& buffer.len() <= limit
+            },
+            None => buffer@ == old(buffer)@,
+        },
+{
+    if buffer.len() > limit || (buffer.len() == limit && !input.is_empty()) {
+        return None;
+    }
+    let count = input.len().min(limit - buffer.len());
+    let (prefix, _) = input.split_at(count);
+    buffer.extend_from_slice(prefix);
+    Some(count)
+}
+}
+
 /// Capture one stream without accepting more bytes than the caller can return.
+#[cfg(not(verus_keep_ghost))]
 struct Stream {
     bytes: Vec<u8>,
     limit: usize,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Write for Stream {
     fn write(&mut self, input: &[u8]) -> io::Result<usize> {
-        let allowed = self.limit - self.bytes.len();
-        if allowed == 0 && !input.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::FileTooLarge,
-                "gh output limit exceeded",
-            ));
-        }
-        let accepted = input.len().min(allowed);
-        self.bytes.extend_from_slice(&input[..accepted]);
-        Ok(accepted)
+        append_output(&mut self.bytes, input, self.limit)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::FileTooLarge, "gh output limit exceeded"))
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -32,6 +64,7 @@ impl Write for Stream {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Call {
     pub child_pid: u32,
     pub stdout: Vec<u8>,
@@ -42,6 +75,7 @@ pub(crate) struct Call {
     pub timed_out: bool,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn run(
     root: &Path,
     executable: &Path,

@@ -29,6 +29,51 @@ use vstd::vpanic as panic;
 mod publication;
 
 verus! {
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn adjacent_notifications_keep_the_tail_and_enforce_the_accumulated_limit() {
+    use policy::{FramePart, frame_part};
+    let input = [255u8, 10u8, 7u8, 10u8];
+    match frame_part(&input, 2, 3) {
+        FramePart::Bytes { payload, consumed, complete } => {
+            if !complete || consumed != 2 || payload.len() != 1 || payload[0] != 255 { panic!(); }
+            let (_, tail) = input.split_at(consumed);
+            assert(tail.len() == 2 && tail@[0] == 7u8 && tail@[1] == 10u8);
+            match frame_part(tail, 0, 1) {
+                FramePart::Bytes { payload, consumed, complete } => {
+                    if !complete || consumed != 2 || payload.len() != 1 || payload[0] != 7 { panic!(); }
+                }
+                _ => panic!(),
+            }
+        }
+        _ => panic!(),
+    }
+    let empty: [u8; 0] = [];
+    if !matches!(frame_part(&empty, 0, 1), FramePart::EndOfStream) { panic!(); }
+    if !matches!(frame_part(&input, 3, 3), FramePart::AboveLimit) { panic!(); }
+    match frame_part(&[10u8], 3, 3) {
+        FramePart::Bytes { payload, consumed, complete } => {
+            if !complete || !payload.is_empty() || consumed != 1 { panic!(); }
+        }
+        _ => panic!(),
+    }
+    match frame_part(&[6u8, 9u8], 1, 3) {
+        FramePart::Bytes { payload, consumed, complete } => {
+            if complete || consumed != 2 || payload.len() != 2 || payload[1] != 9 { panic!(); }
+        }
+        _ => panic!(),
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn gh_output_keeps_previous_bytes_and_only_the_accepted_prefix() {
+    let mut out = vec![3u8];
+    if policy::append_output(&mut out, &[0xffu8, 2u8, 0u8], 3) != Some(2) { panic!(); }
+    if out.len() != 3 || out[0] != 3 || out[1] != 255 || out[2] != 2 { panic!(); }
+    if policy::append_output(&mut out, &[7u8], 3).is_some() { panic!(); }
+    if policy::append_output(&mut out, &[], 3) != Some(0) { panic!(); }
+    if out.len() != 3 || out[0] != 3 || out[1] != 255 || out[2] != 2 { panic!(); }
+}
+
 
 #[cfg(verus_keep_ghost)]
 fn readback_checks_identity_and_the_full_job_list(

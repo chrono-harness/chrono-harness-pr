@@ -590,7 +590,20 @@
           "kind": "test-execution",
           "to": "test:pr-linux-process-group"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/pr/src/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot"
+          },
+          {
+            "path": "crates/pr/tests/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/pr/src/gh_process/group.rs",
@@ -676,7 +689,20 @@
           "kind": "test-execution",
           "to": "test:pr-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/pr/src/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot"
+          },
+          {
+            "path": "crates/pr/tests/verified_snapshot.rs",
+            "operation": "verify.pr-snapshot-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/pr/src/reminders.rs",
