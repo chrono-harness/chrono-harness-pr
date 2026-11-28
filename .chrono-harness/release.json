@@ -1,6 +1,6 @@
 {
   "kind": "binary",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "binary": "chrono-pr",
   "consumer": {
     "repository": "chrono-harness/chrono-harness-example",

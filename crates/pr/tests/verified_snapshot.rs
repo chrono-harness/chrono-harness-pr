@@ -55,6 +55,60 @@ fn snapshot_binding_and_check_pages_require_complete_facts() {
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn check_adapter_rejects_incomplete_or_ambiguous_facts() {
+    proof {
+        reveal_strlit("CheckRun"); reveal_strlit("StatusContext");
+        reveal_strlit("COMPLETED"); reveal_strlit("QUEUED"); reveal_strlit("EXPECTED");
+        reveal_strlit(""); reveal_strlit("check");
+        assert("CheckRun"@[0] == 'C'); assert("StatusContext"@[0] == 'S');
+        assert("COMPLETED"@[0] == 'C'); assert("QUEUED"@[0] == 'Q');
+        assert("EXPECTED"@[0] == 'E');
+    }
+    expect_snapshot_true(matches!(policy::check_context("CheckRun"), policy::CheckContext::Run));
+    expect_snapshot_true(matches!(policy::check_context("StatusContext"), policy::CheckContext::Status));
+    expect_snapshot_true(matches!(policy::check_context("QUEUED"), policy::CheckContext::Unknown));
+    expect_snapshot_true(policy::new_check_id(None));
+    expect_snapshot_true(!policy::new_check_id(Some(9)));
+    expect_snapshot_true(!policy::nonempty_latest_ids(&[]));
+    expect_snapshot_true(policy::nonempty_latest_ids(&[9]));
+    expect_snapshot_true(!policy::nonempty_check_name(""));
+    expect_snapshot_true(policy::nonempty_check_name("check"));
+    expect_snapshot_true(matches!(policy::check_run_state("COMPLETED", false), policy::CheckRunState::Completed));
+    expect_snapshot_true(matches!(policy::check_run_state("QUEUED", true), policy::CheckRunState::Pending));
+    expect_snapshot_true(matches!(policy::check_run_state("QUEUED", false), policy::CheckRunState::PendingWithConclusion));
+    expect_snapshot_true(matches!(policy::check_run_state("EXPECTED", false), policy::CheckRunState::Unknown));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn notice_kind_and_fields_must_identify_the_pending_pr() {
+    proof {
+        reveal_strlit("completed"); reveal_strlit("closed"); reveal_strlit("synchronize");
+        reveal_strlit("pull_request"); reveal_strlit("push");
+        reveal_strlit("owner/repo"); reveal_strlit("fork/repo"); reveal_strlit("before"); reveal_strlit("after");
+        assert("completed"@[1] == 'o'); assert("closed"@[1] == 'l');
+        assert("synchronize"@[0] == 's'); assert("owner/repo"@[0] == 'o'); assert("fork/repo"@[0] == 'f');
+        assert("pull_request"@[2] == 'l'); assert("push"@[2] == 's');
+        assert("before"@[0] == 'b'); assert("after"@[0] == 'a');
+    }
+    expect_snapshot_true(matches!(policy::pr_notice(true, "fork/repo", "owner/repo", "closed"),
+        policy::PrNotice::Push));
+    expect_snapshot_true(matches!(policy::pr_notice(false, "fork/repo", "owner/repo", "completed"),
+        policy::PrNotice::Ignored));
+    expect_snapshot_true(matches!(policy::pr_notice(false, "owner/repo", "owner/repo", "completed"),
+        policy::PrNotice::WorkflowCompleted));
+    expect_snapshot_true(matches!(policy::pr_notice(false, "owner/repo", "owner/repo", "synchronize"),
+        policy::PrNotice::Synchronized));
+    expect_snapshot_true(matches!(policy::pr_notice(false, "owner/repo", "owner/repo", "closed"),
+        policy::PrNotice::Closed));
+    expect_snapshot_true(policy::pr_workflow_completed("pull_request", "completed", "before", "before"));
+    expect_snapshot_true(!policy::pr_workflow_completed("push", "completed", "before", "before"));
+    expect_snapshot_true(!policy::pr_workflow_completed("pull_request", "completed", "after", "before"));
+    expect_snapshot_true(policy::pr_closed_notice("closed", Some(42), 42, "before", "before"));
+    expect_snapshot_true(!policy::pr_closed_notice("closed", None, 42, "before", "before"));
+    expect_snapshot_true(!policy::pr_closed_notice("closed", Some(42), 42, "after", "before"));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn required_checks_settle_only_from_compatible_latest_facts() {
     proof {
         reveal_strlit("SUCCESS"); reveal_strlit("SKIPPED"); reveal_strlit("PENDING");

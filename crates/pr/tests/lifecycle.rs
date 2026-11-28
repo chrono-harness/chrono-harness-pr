@@ -416,6 +416,38 @@ fn latest_check_must_belong_to_the_suite_that_lists_it() {
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn duplicate_and_pending_check_errors_keep_their_order() {
+    let path = "/data/repository/object/statusCheckRollup/contexts/nodes";
+    let mut value = snapshot();
+    let checks = value.pointer_mut(path).unwrap().as_array_mut().unwrap();
+    let mut duplicate = checks[0].clone();
+    duplicate["status"] = json!("QUEUED");
+    checks.push(duplicate);
+    let (code, result) = Host::new(vec![api(value)]).status();
+    assert_eq!(code, 2, "{result}");
+    assert_eq!(result["error"], "duplicate check ID", "{result}");
+
+    for (status, latest, expected) in [
+        ("QUEUED", json!([]), "pending check has a conclusion"),
+        ("COMPLETED", json!([]), "empty latest check set"),
+        (
+            "COMPLETED",
+            json!([{"databaseId":100},{"databaseId":100}]),
+            "duplicate latest check ID",
+        ),
+    ] {
+        let mut value = snapshot();
+        let check = &mut value.pointer_mut(path).unwrap()[0];
+        check["status"] = json!(status);
+        check["checkSuite"]["checkRuns"]["nodes"] = latest;
+        let (code, result) = Host::new(vec![api(value)]).status();
+        assert_eq!(code, 2, "{result}");
+        assert_eq!(result["error"], expected, "{result}");
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn draft_creation_is_explicit_and_readback_failure_preserves_the_pr_number() {
     let mut draft = snapshot();
     draft["data"]["repository"]["pullRequest"]["isDraft"] = json!(true);
