@@ -1,4 +1,5 @@
-_commit: v0.1.39
+# Copier v0.1.54 commit b35a249028e59891333fedbeaef02fdce898c1c8
+_commit: v0.1.54
 _src_path: gh:chrono-harness/chrono-harness-copier
 dev_branch: dev
 expire_local_check_slots:
@@ -54,7 +55,7 @@ required_check: check
 strict_host_adapters: {}
 tool_install_channels: pinned
 tool_versions: {}
-install_resolver_artifact: {"version": "0.1.1", "linux_sha256": "8fd9f01086ad928167f2a6a0db1f6277ffc9c60cbfaf5b1994de946044040058", "macos_sha256": "ff5dd4a2943b672b7fd2f1450c4a1e27dd181cbefe12536c92c75a06dd84d63e"}
+install_resolver_artifact: {"version": "0.1.4", "linux_sha256": "e955b761c6d1819c3710faef74746ecac84d9ee5e9a051c09a67aafe82cde595", "macos_sha256": "01b08b48bf432e21c8f53be131f9320b008a125344bc8b56a4b30a3fd9c3ae0b"}
 dependabot_auto_merge: true
 dependabot_updates:
 - {"package-ecosystem": "github-actions", "directory": "/", "schedule": {"interval": "daily"}, "groups": {"github-actions": {"patterns": ["*"]}}}
