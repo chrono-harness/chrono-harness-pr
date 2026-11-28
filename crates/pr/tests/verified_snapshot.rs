@@ -29,6 +29,10 @@ use vstd::vpanic as panic;
 mod publication;
 
 verus! {
+fn deployed_native_check() -> &'static str {
+    include_str!("../../../.chrono-harness/native-check.sh")
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn snapshot_binding_and_check_pages_require_complete_facts() {
     expect_snapshot_true(policy::repository_envelope(true, false));
@@ -597,4 +601,15 @@ fn rust_snapshot_input_validation_covers_provider_boundaries() {
     for state in ["open", "UNKNOWN", ""] {
         assert!(!valid_pr_state(state), "{state:?}");
     }
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn native_check_passes_cargo_library_to_the_compiler_source_check() {
+    let script = deployed_native_check();
+    let selector = r#"chrono-host-bootstrap select-native-cargo-library "$(pwd -P)/$product" "$scratch/build.jsonl""#;
+    let source_check = r#"chrono-host-bootstrap check-compiler-sources native "$stem""#;
+    let select_at = script.find(selector).expect("registered Cargo selector");
+    let check_at = script.find(source_check).expect("registered source check");
+    assert!(select_at < check_at);
 }
