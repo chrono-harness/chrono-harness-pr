@@ -8,6 +8,8 @@ use vstd::prelude::*;
 
 verus! {
 fn deployed_roadmap() -> (text: &'static str) { include_str!("../../../.github/workflows/issue-roadmap.yml") }
+fn deployed_installer() -> (text: &'static str) { include_str!("../../../.chrono-harness/install-tools.sh") }
+fn deployed_roadmap_script() -> (text: &'static str) { include_str!("../../../.github/roadmap.cjs") }
 fn deployed_release() -> (text: &'static str) { include_str!("../../../.github/workflows/release.yml") }
 
 spec fn is_hex(c: u8) -> bool { (48 <= c <= 57) || (97 <= c <= 102) }
@@ -81,6 +83,26 @@ mod native {
                 &["actions/checkout", "actions/github-script"],
             );
         }
+    }
+
+    #[test]
+    fn installer_and_roadmap_script_match_the_published_render() {
+        use sha2::{Digest, Sha256};
+
+        let digest = |source: &str| {
+            Sha256::digest(source.as_bytes())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        };
+        assert_eq!(
+            digest(deployed_installer()),
+            "40f5d822dce9ad1e31ccabeed9df7ffcb3b59cffcb000411b13306b05aa6bb72"
+        );
+        assert_eq!(
+            digest(deployed_roadmap_script()),
+            "86e97ab0ed63be36d37d32e7d164da4e226c6f616685ad4ce1dd75f814095f8a"
+        );
     }
 
     #[test]

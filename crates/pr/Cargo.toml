@@ -9,6 +9,7 @@ description = "Head-bound pull request operations for AI callers"
 test-gh = []
 
 [dev-dependencies]
+sha2 = "0.11"
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 tempfile = "3"
 
