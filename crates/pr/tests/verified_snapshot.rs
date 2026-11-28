@@ -30,6 +30,104 @@ mod publication;
 
 verus! {
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn snapshot_binding_and_check_pages_require_complete_facts() {
+    expect_snapshot_true(policy::repository_envelope(true, false));
+    expect_snapshot_true(!policy::repository_envelope(true, true));
+    expect_snapshot_true(!policy::graphql_errors(false, Some(0)));
+    expect_snapshot_true(policy::graphql_errors(false, None));
+    expect_snapshot_true(policy::matches_pr_number(Some(42), 42));
+    expect_snapshot_true(!policy::matches_pr_number(Some(43), 42));
+    expect_snapshot_true(!policy::matches_pr_number(None, 42));
+    expect_snapshot_true(policy::head_repository_name(&[97u8, 47, 98]));
+    expect_snapshot_true(!policy::head_repository_name(&[97u8, 47]));
+    expect_snapshot_true(!policy::head_repository_name(&[47u8, 98]));
+    expect_snapshot_true(!policy::head_repository_name(&[97u8, 47, 98, 47, 99]));
+    expect_snapshot_true(policy::complete_check_page(Some(false)));
+    expect_snapshot_true(!policy::complete_check_page(Some(true)));
+    expect_snapshot_true(!policy::complete_check_page(None));
+    expect_snapshot_true(policy::canonical_set_equal(&[1, 2], &[1, 2]));
+    expect_snapshot_true(!policy::canonical_set_equal(&[1, 2], &[1, 3]));
+    expect_snapshot_true(policy::contains_check_id(&[1, 2], 2));
+    expect_snapshot_true(!policy::contains_check_id(&[1, 2], 3));
+    expect_snapshot_true(policy::latest_members_belong(200, &[Some(200), Some(200)]));
+    expect_snapshot_true(!policy::latest_members_belong(200, &[Some(200), None]));
+    expect_snapshot_true(!policy::latest_members_belong(200, &[Some(200), Some(201)]));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn required_checks_settle_only_from_compatible_latest_facts() {
+    proof {
+        reveal_strlit("SUCCESS"); reveal_strlit("SKIPPED"); reveal_strlit("PENDING");
+        reveal_strlit("ERROR"); reveal_strlit("WAITING"); reveal_strlit("EXPECTED");
+        reveal_strlit("MISSING"); reveal_strlit("FAILURE"); reveal_strlit("OPEN");
+        reveal_strlit("MERGED"); reveal_strlit("UNKNOWN");
+        reveal_strlit("QUEUED"); reveal_strlit("IN_PROGRESS"); reveal_strlit("REQUESTED");
+        assert("OPEN"@.len() == 4); assert("MERGED"@.len() == 6);
+        assert("SKIPPED"@.len() == 7); assert("ERROR"@.len() == 5);
+        assert("REQUESTED"@.len() == 9); assert("IN_PROGRESS"@.len() == 11);
+        assert("QUEUED"@.len() == 6);
+        assert("SUCCESS"@[0] == 'S'); assert("SKIPPED"@[1] == 'K');
+        assert("SUCCESS"@[1] == 'U'); assert("PENDING"@[0] == 'P');
+        assert("MISSING"@[0] == 'M'); assert("WAITING"@[0] == 'W');
+        assert("EXPECTED"@[0] == 'E'); assert("FAILURE"@[0] == 'F');
+    }
+    expect_snapshot_true(policy::supported_run_conclusion("SKIPPED"));
+    expect_snapshot_true(!policy::supported_run_conclusion("PENDING"));
+    expect_snapshot_true(!policy::supported_run_conclusion("ERROR"));
+    expect_snapshot_true(policy::pending_check_status("WAITING"));
+    expect_snapshot_true(!policy::pending_check_status("EXPECTED"));
+    expect_snapshot_true(policy::supported_commit_status("EXPECTED"));
+    expect_snapshot_true(!policy::supported_commit_status("WAITING"));
+    expect_snapshot_true(policy::compatible_required_success("SUCCESS", "SUCCESS", Some(7), Some(7), true));
+    expect_snapshot_true(!policy::compatible_required_success("SUCCESS", "SUCCESS", Some(7), Some(8), true));
+    expect_snapshot_true(!policy::compatible_required_success("SUCCESS", "SUCCESS", None, None, true));
+    expect_snapshot_true(!policy::compatible_required_success("SUCCESS", "SUCCESS", Some(7), Some(7), false));
+    expect_snapshot_true(!policy::compatible_required_success("SUCCESS", "FAILURE", Some(7), Some(7), true));
+    expect_snapshot_true(matches!(policy::fold_required_checks(&["SUCCESS", policy::missing_check_state(None)]),
+        policy::SnapshotOutcome::Pending));
+    let failed: &[&str] = &["MISSING", "FAILURE"];
+    proof {
+        assert(failed@[1]@ == "FAILURE"@);
+        assert(policy::check_class_spec(failed@[1]@) == policy::CheckClass::Failed);
+    }
+    expect_snapshot_true(matches!(policy::fold_required_checks(failed), policy::SnapshotOutcome::Failed));
+    let passed = policy::fold_required_checks(&["SUCCESS", "SUCCESS"]);
+    expect_snapshot_true(matches!(passed, policy::SnapshotOutcome::Passed));
+    expect_snapshot_true(matches!(policy::snapshot_mergeability("OPEN", "UNKNOWN", passed),
+        policy::SnapshotOutcome::Unknown));
+    expect_snapshot_true(matches!(policy::snapshot_mergeability("MERGED", "UNKNOWN", policy::SnapshotOutcome::Passed),
+        policy::SnapshotOutcome::Passed));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn only_fresh_events_trigger_readback_and_verified_progress_ends_wait() {
+    proof {
+        reveal_strlit("857/1"); reveal_strlit("858/1"); reveal_strlit("857/2");
+        assert("857/1"@[2] == '7'); assert("858/1"@[2] == '8');
+        assert("857/2"@[2] == '7'); assert("857/1"@[4] == '1');
+        assert("857/2"@[4] == '2');
+        reveal_strlit("pending"); reveal_strlit("passed"); reveal_strlit("unknown");
+        reveal_strlit("UNKNOWN"); reveal_strlit("MERGEABLE");
+        assert("pending"@.len() == 7); assert("passed"@.len() == 6);
+        assert("pending"@[0] == 'p'); assert("unknown"@[0] == 'u');
+        assert("UNKNOWN"@.len() == 7); assert("MERGEABLE"@.len() == 9);
+    }
+    let mut seen = Vec::new();
+    expect_snapshot_true(policy::remember_pr_event(&mut seen, "857/1".to_string()));
+    expect_snapshot_true(policy::remember_pr_event(&mut seen, "858/1".to_string()));
+    let duplicate = "857/1".to_string();
+    proof { assert(seen@[0]@ == duplicate@); }
+    expect_snapshot_true(!policy::remember_pr_event(&mut seen, duplicate));
+    expect_snapshot_true(policy::remember_pr_event(&mut seen, "857/2".to_string()));
+    expect_snapshot_true(policy::wait_for_pr("pending"));
+    expect_snapshot_true(!policy::wait_for_pr("unknown"));
+    expect_snapshot_true(!policy::finish_pr_wait("pending", false, "UNKNOWN", "UNKNOWN"));
+    expect_snapshot_true(policy::finish_pr_wait("pending", false, "UNKNOWN", "MERGEABLE"));
+    expect_snapshot_true(policy::finish_pr_wait("pending", true, "UNKNOWN", "UNKNOWN"));
+    expect_snapshot_true(policy::finish_pr_wait("passed", false, "MERGEABLE", "MERGEABLE"));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn group_exit_requires_observed_absence_or_the_requested_pidfd_event() {
     if !policy::confirmed_absent(-1, true) { panic!(); }
     if policy::confirmed_absent(-1, false) { panic!(); }

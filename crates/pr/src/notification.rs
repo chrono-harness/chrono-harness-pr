@@ -209,7 +209,13 @@ pub(crate) fn pr_event(
                     )
                 }) =>
         {
-            serde_json::json!({"event":"workflow_run.completed","run_id":run["id"].as_u64().filter(|id| *id > 0)?})
+            let id = crate::verified_snapshot::positive_id(run["id"].as_u64())?;
+            let mut completion = serde_json::json!({"event":"workflow_run.completed","run_id":id});
+            if let Some(attempt) = run.get("run_attempt") {
+                completion["run_attempt"] =
+                    crate::verified_snapshot::positive_id(attempt.as_u64())?.into();
+            }
+            completion
         }
         Some("synchronize") => {
             let notice = &body["pull_request"];
