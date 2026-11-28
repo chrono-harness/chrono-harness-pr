@@ -400,6 +400,42 @@ pub fn valid_pr_state(state: &str) -> (valid: bool)
         || same_text(state, "MERGED")
 }
 
+/// GitHub may retain the PR's recorded base after the branch moves. Open PRs
+/// use the live refs, and terminal PRs retain their recorded OIDs.
+pub fn snapshot_branch_oids<'a>(
+    state: &str, pr_base: &'a str, pr_head: &'a str,
+    live_base: Option<&'a str>, live_head: Option<&'a str>,
+) -> (selected: Result<(&'a str, &'a str), &'static str>)
+    ensures match selected {
+        Ok((base, head)) => if state@ == "OPEN"@ {
+            live_base == Some(base) && live_head == Some(head)
+                && sha_format(base.spec_bytes()) && sha_format(head.spec_bytes())
+        } else { base == pr_base && head == pr_head },
+        Err(error) => state@ == "OPEN"@ && match (live_base, live_head) {
+            (None, _) => error@ == "invalid remote field /baseRef/target/oid"@,
+            (Some(_), None) => error@ == "invalid remote field /headRef/target/oid"@,
+            (Some(base), Some(head)) => error@ == "invalid live branch SHA"@
+                && (!sha_format(base.spec_bytes()) || !sha_format(head.spec_bytes())),
+        },
+    },
+{
+    if !pull_request_open(state) {
+        return Ok((pr_base, pr_head));
+    }
+    let base = match live_base {
+        Some(base) => base,
+        None => return Err("invalid remote field /baseRef/target/oid"),
+    };
+    let head = match live_head {
+        Some(head) => head,
+        None => return Err("invalid remote field /headRef/target/oid"),
+    };
+    if !valid_sha_text(base) || !valid_sha_text(head) {
+        return Err("invalid live branch SHA");
+    }
+    Ok((base, head))
+}
+
 pub open spec fn snapshot_outcome_spec(
     stale: bool, closed: bool, failed: bool, pending: bool,
 ) -> SnapshotOutcome {

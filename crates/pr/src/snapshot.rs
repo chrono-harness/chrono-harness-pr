@@ -41,11 +41,13 @@ pub(crate) const QUERY: &str = r#"query($owner:String!,$name:String!,$number:Int
 }"#;
 
 #[cfg(not(verus_keep_ghost))]
+fn text_at<'a>(value: &'a Value, pointer: &str) -> Option<&'a str> {
+    value.pointer(pointer).and_then(Value::as_str)
+}
+
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn field<'a>(value: &'a Value, pointer: &str) -> Result<&'a str, String> {
-    value
-        .pointer(pointer)
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("invalid remote field {pointer}"))
+    text_at(value, pointer).ok_or_else(|| format!("invalid remote field {pointer}"))
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -117,18 +119,13 @@ pub(crate) fn pull_request(
     if !verified_snapshot::valid_pr_state(state) {
         return Err("unknown PR state".into());
     }
-    // GitHub may keep baseRefOid at the PR's original base after the branch moves.
-    // The live refs identify the push; mergeable describes GitHub's current PR verdict.
-    let (live_base, live_head) = if state == "OPEN" {
-        let base = field(pr, "/baseRef/target/oid")?;
-        let head = field(pr, "/headRef/target/oid")?;
-        if !sha(base) || !sha(head) {
-            return Err("invalid live branch SHA".into());
-        }
-        (base, head)
-    } else {
-        (base_oid, observed)
-    };
+    let (selected_base, selected_head) = verified_snapshot::snapshot_branch_oids(
+        state,
+        base_oid,
+        observed,
+        text_at(pr, "/baseRef/target/oid"),
+        text_at(pr, "/headRef/target/oid"),
+    )?;
     let url = field(pr, "/url")?;
     let expected_url = format!("https://github.com/{repo}/pull/{number}");
     if url != expected_url {
@@ -149,12 +146,12 @@ pub(crate) fn pull_request(
     Ok(Snapshot {
         number,
         url: url.into(),
-        head: live_head.into(),
+        head: selected_head.into(),
         pr_head_oid: observed.into(),
         pr_base_oid: base_oid.into(),
         branch: field(pr, "/headRefName")?.into(),
         head_repository: head_repository.into(),
-        base_oid: live_base.into(),
+        base_oid: selected_base.into(),
         mergeable: mergeable.into(),
         state: state.into(),
         merge_commit,
