@@ -1,5 +1,5 @@
 #[cfg(not(verus_keep_ghost))]
-use crate::verified_snapshot;
+use crate::verified_snapshot::{self, CheckClass};
 #[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
 #[cfg(not(verus_keep_ghost))]
@@ -52,11 +52,11 @@ pub(crate) fn field<'a>(value: &'a Value, pointer: &str) -> Result<&'a str, Stri
 
 #[cfg(not(verus_keep_ghost))]
 pub(crate) fn repository(value: &Value, expected: &str) -> Result<(), String> {
-    if !value.is_object()
-        || value
-            .get("errors")
-            .is_some_and(|e| !e.is_null() && e.as_array().is_none_or(|a| !a.is_empty()))
-        || field(value, "/data/repository/nameWithOwner")? != expected
+    let errors = value.get("errors").is_some_and(|errors| {
+        verified_snapshot::graphql_errors(errors.is_null(), errors.as_array().map(Vec::len))
+    });
+    if !verified_snapshot::repository_envelope(value.is_object(), errors)
+        || !verified_snapshot::same_text(field(value, "/data/repository/nameWithOwner")?, expected)
     {
         return Err("GitHub returned errors or a different repository".into());
     }
@@ -96,19 +96,18 @@ pub(crate) fn pull_request(
 ) -> Result<Snapshot, String> {
     repository(value, repo)?;
     let pr = &value["data"]["repository"]["pullRequest"];
-    if pr["number"].as_u64() != Some(number) || field(pr, "/baseRefName")? != base {
+    if !verified_snapshot::matches_pr_number(pr["number"].as_u64(), number)
+        || !verified_snapshot::same_text(field(pr, "/baseRefName")?, base)
+    {
         return Err("PR number, base or head repository mismatch".into());
     }
     let head_repository = field(pr, "/headRepository/nameWithOwner")?;
-    if !head_repository
-        .split_once('/')
-        .is_some_and(|(owner, name)| !owner.is_empty() && !name.is_empty() && !name.contains('/'))
-    {
+    if !verified_snapshot::head_repository_name(head_repository.as_bytes()) {
         return Err("invalid PR head repository".into());
     }
     let base_oid = field(pr, "/baseRefOid")?;
     let mergeable = field(pr, "/mergeable")?;
-    if !sha(base_oid) || !matches!(mergeable, "MERGEABLE" | "CONFLICTING" | "UNKNOWN") {
+    if !verified_snapshot::valid_base_and_mergeability(base_oid, mergeable) {
         return Err("invalid PR base SHA or mergeability".into());
     }
     let observed = field(pr, "/headRefOid")?;
@@ -128,7 +127,7 @@ pub(crate) fn pull_request(
     )?;
     let url = field(pr, "/url")?;
     let expected_url = format!("https://github.com/{repo}/pull/{number}");
-    if url != expected_url {
+    if !verified_snapshot::same_text(url, &expected_url) {
         return Err("PR URL mismatch (only github.com is supported)".into());
     }
     let merge_commit = if pull_request_merged(state) {
@@ -184,7 +183,7 @@ pub(crate) fn evaluate_checks(
         return Ok(());
     }
     let commit = &value["data"]["repository"]["object"];
-    if field(commit, "/oid")? != head {
+    if !verified_snapshot::same_text(field(commit, "/oid")?, head) {
         return Err("check commit does not match expected head".into());
     }
     let rollup = commit
@@ -192,62 +191,43 @@ pub(crate) fn evaluate_checks(
         .ok_or("missing check rollup field")?;
     let mut current = BTreeMap::new();
     let mut required_suites: BTreeMap<&str, (Option<u64>, BTreeSet<u64>)> = BTreeMap::new();
-    let mut ids = BTreeSet::new();
-    let mut suites = BTreeMap::new();
+    let mut suites_by_check = BTreeMap::new();
+    let mut suites: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
     if !rollup.is_null() {
         let contexts = &rollup["contexts"];
         complete(contexts)?;
         for node in contexts["nodes"].as_array().ok_or("invalid check nodes")? {
             let (name, state) = match field(node, "/__typename")? {
                 "CheckRun" => {
-                    let id = node["databaseId"]
-                        .as_u64()
-                        .filter(|id| *id > 0)
+                    let id = verified_snapshot::positive_id(node["databaseId"].as_u64())
                         .ok_or("invalid check ID")?;
-                    if !ids.insert(id) {
+                    if suites_by_check.contains_key(&id) {
                         return Err("duplicate check ID".into());
                     }
                     let name = field(node, "/name")?;
                     let status = field(node, "/status")?;
-                    let state = match status {
-                        "COMPLETED" => {
-                            let conclusion = field(node, "/conclusion")?;
-                            if ![
-                                "SUCCESS",
-                                "FAILURE",
-                                "CANCELLED",
-                                "TIMED_OUT",
-                                "ACTION_REQUIRED",
-                                "STARTUP_FAILURE",
-                                "STALE",
-                                "NEUTRAL",
-                                "SKIPPED",
-                            ]
-                            .contains(&conclusion)
-                            {
-                                return Err("invalid completed check conclusion".into());
-                            }
-                            conclusion
+                    let state = if verified_snapshot::completed_check(status) {
+                        let conclusion = field(node, "/conclusion")?;
+                        if !verified_snapshot::supported_run_conclusion(conclusion) {
+                            return Err("invalid completed check conclusion".into());
                         }
-                        "QUEUED" | "IN_PROGRESS" | "WAITING" | "REQUESTED" | "PENDING" => {
-                            if !node.get("conclusion").is_some_and(Value::is_null) {
-                                return Err("pending check has a conclusion".into());
-                            }
-                            status
+                        conclusion
+                    } else if verified_snapshot::pending_check_status(status) {
+                        if !node.get("conclusion").is_some_and(Value::is_null) {
+                            return Err("pending check has a conclusion".into());
                         }
-                        _ => return Err("unknown check status".into()),
+                        status
+                    } else {
+                        return Err("unknown check status".into());
                     };
-                    classify(state)?;
-                    if field(node, "/checkSuite/commit/oid")? != head {
+                    if !verified_snapshot::same_text(field(node, "/checkSuite/commit/oid")?, head) {
                         return Err("check suite commit mismatch".into());
                     }
                     let latest = &node["checkSuite"]["checkRuns"];
                     complete(latest)?;
                     let mut latest_ids = BTreeSet::new();
                     for row in latest["nodes"].as_array().ok_or("invalid latest checks")? {
-                        let latest_id = row["databaseId"]
-                            .as_u64()
-                            .filter(|id| *id > 0)
+                        let latest_id = verified_snapshot::positive_id(row["databaseId"].as_u64())
                             .ok_or("invalid latest check ID")?;
                         if !latest_ids.insert(latest_id) {
                             return Err("duplicate latest check ID".into());
@@ -256,27 +236,29 @@ pub(crate) fn evaluate_checks(
                     if latest_ids.is_empty() {
                         return Err("empty latest check set".into());
                     }
-                    let suite_id = node["checkSuite"]["databaseId"]
-                        .as_u64()
-                        .filter(|id| *id > 0)
-                        .ok_or("invalid check suite ID")?;
-                    if suites
-                        .insert(suite_id, latest_ids.clone())
-                        .is_some_and(|previous| previous != latest_ids)
-                    {
-                        return Err("inconsistent latest check set".into());
+                    let suite_id =
+                        verified_snapshot::positive_id(node["checkSuite"]["databaseId"].as_u64())
+                            .ok_or("invalid check suite ID")?;
+                    suites_by_check.insert(id, suite_id);
+                    let latest_ids: Vec<_> = latest_ids.into_iter().collect();
+                    if let Some(previous) = suites.get(&suite_id) {
+                        if !verified_snapshot::canonical_set_equal(previous, &latest_ids) {
+                            return Err("inconsistent latest check set".into());
+                        }
                     }
-                    if !latest_ids.contains(&id) {
+                    let latest = verified_snapshot::contains_check_id(&latest_ids, id);
+                    suites.entry(suite_id).or_insert(latest_ids);
+                    if !latest {
                         continue;
                     }
                     (name, state)
                 }
                 "StatusContext" => {
-                    if field(node, "/commit/oid")? != head {
+                    if !verified_snapshot::same_text(field(node, "/commit/oid")?, head) {
                         return Err("status commit mismatch".into());
                     }
                     let state = field(node, "/state")?;
-                    if !["SUCCESS", "FAILURE", "ERROR", "PENDING", "EXPECTED"].contains(&state) {
+                    if !verified_snapshot::supported_commit_status(state) {
                         return Err("unknown commit status".into());
                     }
                     (field(node, "/context")?, state)
@@ -286,25 +268,30 @@ pub(crate) fn evaluate_checks(
             if name.is_empty() {
                 return Err("empty or ambiguous check name".into());
             }
-            if !required.iter().any(|required_name| required_name == name) {
+            if !required
+                .iter()
+                .any(|required_name| verified_snapshot::same_text(required_name, name))
+            {
                 continue;
             }
             let suite = &node["checkSuite"];
-            let workflow = suite
-                .pointer("/workflowRun/workflow/databaseId")
-                .and_then(Value::as_u64)
-                .filter(|id| *id > 0);
+            let workflow = verified_snapshot::positive_id(
+                suite
+                    .pointer("/workflowRun/workflow/databaseId")
+                    .and_then(Value::as_u64),
+            );
             let (first_workflow, sources) = required_suites.entry(name).or_default();
             let new_suite = suite["databaseId"]
                 .as_u64()
                 .is_some_and(|id| sources.insert(id));
             if let Some(previous) = current.insert(name, state) {
-                if previous != "SUCCESS"
-                    || state != "SUCCESS"
-                    || workflow.is_none()
-                    || *first_workflow != workflow
-                    || !new_suite
-                {
+                if !verified_snapshot::compatible_required_success(
+                    previous,
+                    state,
+                    *first_workflow,
+                    workflow,
+                    new_suite,
+                ) {
                     return Err("empty or ambiguous check name".into());
                 }
             } else {
@@ -312,56 +299,44 @@ pub(crate) fn evaluate_checks(
             }
         }
     }
-    if suites.values().any(|latest| !latest.is_subset(&ids)) {
-        return Err("latest check missing from complete rollup".into());
-    }
-    let mut failed = false;
-    let mut waiting = false;
-    for name in required {
-        let state = current.get(name.as_str()).copied().unwrap_or("MISSING");
-        match classify(state)? {
-            "failed" => failed = true,
-            "pending" => waiting = true,
-            _ => {}
+    for (suite, ids) in suites {
+        let observed_suites: Vec<_> = ids
+            .iter()
+            .map(|id| suites_by_check.get(id).copied())
+            .collect();
+        if !verified_snapshot::latest_members_belong(suite, &observed_suites) {
+            return Err("latest check missing from complete rollup".into());
         }
+    }
+    let mut states = Vec::with_capacity(required.len());
+    for name in required {
+        let state = verified_snapshot::missing_check_state(current.get(name.as_str()).copied());
+        if let CheckClass::Unknown = verified_snapshot::classify_check(state) {
+            return Err(format!("unknown check conclusion {state}"));
+        }
+        states.push(state);
         result.checks.push(json!({"name":name,"state":state}));
     }
     result.required_suite_ids = required_suites
         .into_values()
         .flat_map(|(_, ids)| ids)
         .collect();
-    result.outcome =
-        verified_snapshot::snapshot_outcome_label(verified_snapshot::snapshot_outcome(
-            verified_snapshot::observed_head_is_stale(observed, head),
-            verified_snapshot::pull_request_closed(state),
-            failed,
-            waiting,
-        ));
-    if state == "OPEN" && result.mergeable == "UNKNOWN" && result.outcome == "passed" {
-        result.outcome = "unknown";
-    }
+    let checks = verified_snapshot::fold_required_checks(&states);
+    result.outcome = verified_snapshot::snapshot_outcome_label(
+        verified_snapshot::snapshot_mergeability(state, &result.mergeable, checks),
+    );
     Ok(())
 }
 
 #[cfg(not(verus_keep_ghost))]
 fn complete(value: &Value) -> Result<(), String> {
-    if value
+    let has_next = value
         .pointer("/pageInfo/hasNextPage")
-        .and_then(Value::as_bool)
-        != Some(false)
-    {
+        .and_then(Value::as_bool);
+    if !verified_snapshot::complete_check_page(has_next) {
         return Err("missing or truncated check page; complete facts required".into());
     }
     Ok(())
-}
-
-#[cfg(not(verus_keep_ghost))]
-fn classify(state: &str) -> Result<&'static str, String> {
-    let class = verified_snapshot::classify_check(state);
-    match class {
-        verified_snapshot::CheckClass::Unknown => Err(format!("unknown check conclusion {state}")),
-        _ => Ok(verified_snapshot::check_class_label(class)),
-    }
 }
 
 #[cfg(verus_keep_ghost)]

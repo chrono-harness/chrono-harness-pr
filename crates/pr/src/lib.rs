@@ -537,14 +537,14 @@ impl Client {
         let number = args.number()?;
         let head = args.get("--head-sha")?;
         let mut current = self.snapshot(number, head)?;
-        if args.command == "pr-status" || current.outcome != "pending" {
+        if args.command == "pr-status" || !verified_snapshot::wait_for_pr(current.outcome) {
             return Ok(());
         }
         let mut frames = notification::Frames::stdin(
             self.started + self.budget,
             self.config.output_limit_bytes,
         )?;
-        let mut recent_events = std::collections::VecDeque::new();
+        let mut seen_events = Vec::new();
         let mut readbacks = 0u64;
         loop {
             let body = frames.next()?;
@@ -553,13 +553,9 @@ impl Client {
             else {
                 continue;
             };
-            if recent_events.contains(&event) {
+            if !verified_snapshot::remember_pr_event(&mut seen_events, event.to_string()) {
                 continue;
             }
-            if recent_events.len() == 64 {
-                recent_events.pop_front();
-            }
-            recent_events.push_back(event.clone());
             self.result["notification"] = event;
             self.result["receipts"].as_array_mut().unwrap().truncate(1);
             readbacks += 1;
@@ -576,10 +572,12 @@ impl Client {
                 self.result["outcome"] = json!("changed");
                 return Ok(());
             }
-            if next.outcome != "pending"
-                || next.checks != current.checks
-                || next.mergeable != current.mergeable
-            {
+            if verified_snapshot::finish_pr_wait(
+                next.outcome,
+                next.checks != current.checks,
+                &current.mergeable,
+                &next.mergeable,
+            ) {
                 return Ok(());
             }
             current = next;

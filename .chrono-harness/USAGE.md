@@ -37,3 +37,5 @@
 CLI 把 File::write 实际返回的字节数或系统错误交给 write_step。它假设成功计数不超过传入的剩余切片，Interrupted 由 Rust 的 io::ErrorKind 识别。继续时偏移严格增加，完整写入才刷新，刷新失败保留已写总数。复制文件描述符、写入或刷新失败时以 2 退出，错误事件包含业务退出码和实际发布字节数。生产根与独立预期共同编译 CLI 的判断源码。系统调用是否成功以及错误诊断能否写入 stderr 由实际文件描述符决定。
 
 PR 快照通过 `serde_json::Value::pointer` 读取 GitHub GraphQL 指定路径，并通过 `Value::as_str` 取得原字符串。缺失、null 和非字符串字段都交给 `snapshot_branch_oids` 作为缺失值。活动字段的选择、SHA 校验和错误顺序由该函数证明。`pr-status` 和 `pr-watch` 使用选出的提交，独立证明根和 gh 替身共同验收这条路径。
+
+快照证明读取 GraphQL 解码后的字段、布尔值、ID 和数组。JSON 语法及重复成员由 `serde_json` 和 `json_syntax` 读取。Rust 的有序集合将 ID 排成唯一序列，映射按原 ID 查找 suite，Verus 核对各套 latest 集合及其成员所属的 suite。配置中的必需检查按原顺序输出，缺项和失败的优先级由同源折叠决定。等候只由匹配的通知唤醒。GitHub workflow 通知有 attempt 时，run ID 和 attempt 一起确定完成事件。同一次等待中重复的通知不再发出 GraphQL 查询。

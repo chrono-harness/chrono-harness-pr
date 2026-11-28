@@ -395,6 +395,27 @@ fn unknown_states_wrong_commits_and_incomplete_latest_sets_are_errors() {
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn latest_check_must_belong_to_the_suite_that_lists_it() {
+    let mut value = snapshot();
+    let checks = value
+        .pointer_mut("/data/repository/object/statusCheckRollup/contexts/nodes")
+        .unwrap()
+        .as_array_mut()
+        .unwrap();
+    let mut second = checks[0].clone();
+    second["name"] = json!("other check");
+    second["databaseId"] = json!(101);
+    second["checkSuite"]["databaseId"] = json!(201);
+    second["checkSuite"]["checkRuns"]["nodes"] = json!([{"databaseId":101}]);
+    checks[0]["checkSuite"]["checkRuns"]["nodes"] = json!([{"databaseId":100},{"databaseId":101}]);
+    checks.push(second);
+    let (code, result) = Host::new(vec![api(value)]).status();
+    assert_eq!(code, 2, "{result}");
+    assert_eq!(result["error"], "latest check missing from complete rollup");
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn draft_creation_is_explicit_and_readback_failure_preserves_the_pr_number() {
     let mut draft = snapshot();
     draft["data"]["repository"]["pullRequest"]["isDraft"] = json!(true);
@@ -550,6 +571,38 @@ fn one_matching_event_wakes_one_factual_readback() {
     let host = Host::new(vec![api(pending()), api(snapshot())]);
     let closed = json!({"action":"closed","repository":{"full_name":"example/host"},"pull_request":{"state":"closed","number":42,"head":{"sha":HEAD}}});
     assert_eq!(host.watch(&closed).0, 0);
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn repeated_completion_is_ignored_but_a_new_attempt_wakes_the_pr() {
+    let mut completed = completed_event();
+    completed["workflow_run"]["run_attempt"] = json!(1);
+    let mut events = vec![completed.clone()];
+    for id in 1000..1065 {
+        let mut event = completed.clone();
+        event["workflow_run"]["id"] = json!(id);
+        events.push(event);
+    }
+    let mut responses = vec![api(pending()); events.len() + 1];
+    events.push(completed.clone());
+    completed["workflow_run"]["run_attempt"] = json!(2);
+    events.push(completed);
+    responses.push(api(snapshot()));
+    let host = Host::new(responses);
+    let input = events
+        .iter()
+        .map(|event| format!("{event}\n"))
+        .collect::<String>();
+    let (code, result) = host.run_with_input(
+        &["pr-watch", "--pr", "42", "--head-sha", HEAD],
+        input.as_bytes(),
+        false,
+    );
+    assert_eq!(code, 0, "{result}");
+    assert_eq!(result["notification"]["run_id"], 857);
+    assert_eq!(result["notification"]["run_attempt"], 2);
+    assert_eq!(host.calls().len(), events.len());
 }
 
 #[test]
