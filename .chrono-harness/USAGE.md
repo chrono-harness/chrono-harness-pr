@@ -35,3 +35,5 @@
 产品位于 [`crates/pr`](../crates/pr)。在仓库根目录运行 `mise exec -- ./check.sh` 执行本仓的检查。 本地和 GitHub 使用同一份 Git DELTA、证明根与原生测试登记。macOS 单元执行 PR 状态的生产与独立测试证明、原生 PR 行为和发布配置检查，Linux 单元验证进程组退出，汇总作业读取原件。
 
 CLI 把 File::write 实际返回的字节数或系统错误交给 write_step。它假设成功计数不超过传入的剩余切片，Interrupted 由 Rust 的 io::ErrorKind 识别。继续时偏移严格增加，完整写入才刷新，刷新失败保留已写总数。复制文件描述符、写入或刷新失败时以 2 退出，错误事件包含业务退出码和实际发布字节数。生产根与独立预期共同编译 CLI 的判断源码。系统调用是否成功以及错误诊断能否写入 stderr 由实际文件描述符决定。
+
+PR 快照通过 `serde_json::Value::pointer` 读取 GitHub GraphQL 指定路径，并通过 `Value::as_str` 取得原字符串。缺失、null 和非字符串字段都交给 `snapshot_branch_oids` 作为缺失值。活动字段的选择、SHA 校验和错误顺序由该函数证明。`pr-status` 和 `pr-watch` 使用选出的提交，独立证明根和 gh 替身共同验收这条路径。

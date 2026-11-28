@@ -348,6 +348,60 @@ fn snapshot_input_boundaries_are_proved() {
     expect_snapshot_true(!policy::record_pr_observation(true, false));
 }
 
+fn snapshot_branch_oid_expectations(
+    pr_base: &str, pr_head: &str, live_base: &str, live_head: &str, invalid: &str,
+)
+    requires
+        policy::sha_format(live_base.spec_bytes()),
+        policy::sha_format(live_head.spec_bytes()),
+        !policy::sha_format(invalid.spec_bytes()),
+{
+    proof {
+        reveal_strlit("OPEN");
+        reveal_strlit("CLOSED");
+        reveal_strlit("MERGED");
+        assert("CLOSED"@.len() != "OPEN"@.len());
+        assert("MERGED"@.len() != "OPEN"@.len());
+    }
+    let open = policy::snapshot_branch_oids("OPEN", pr_base, pr_head, Some(live_base), Some(live_head));
+    expect_branch_oids(open, live_base, live_head);
+    let closed = policy::snapshot_branch_oids("CLOSED", pr_base, pr_head, Some(live_base), Some(live_head));
+    expect_branch_oids(closed, pr_base, pr_head);
+    let merged = policy::snapshot_branch_oids("MERGED", pr_base, pr_head, None, Some(invalid));
+    expect_branch_oids(merged, pr_base, pr_head);
+
+    let no_refs = policy::snapshot_branch_oids("OPEN", pr_base, pr_head, None, None);
+    expect_branch_oid_error(no_refs, "invalid remote field /baseRef/target/oid");
+    let no_head = policy::snapshot_branch_oids("OPEN", pr_base, pr_head, Some(invalid), None);
+    expect_branch_oid_error(no_head, "invalid remote field /headRef/target/oid");
+    let malformed_head = policy::snapshot_branch_oids("OPEN", pr_base, pr_head, Some(live_base), Some(invalid));
+    expect_branch_oid_error(malformed_head, "invalid live branch SHA");
+}
+
+fn expect_branch_oids(actual: Result<(&str, &str), &str>, expected_base: &str, expected_head: &str)
+    requires match actual {
+        Ok((base, head)) => base@ == expected_base@ && head@ == expected_head@,
+        Err(_) => false,
+    },
+{
+    match actual {
+        Ok((base, head)) => {
+            expect_snapshot_true(!policy::observed_head_is_stale(base, expected_base));
+            expect_snapshot_true(!policy::observed_head_is_stale(head, expected_head));
+        },
+        Err(_) => panic!(),
+    }
+}
+
+fn expect_branch_oid_error(actual: Result<(&str, &str), &str>, expected: &str)
+    requires match actual { Ok(_) => false, Err(error) => error@ == expected@ },
+{
+    match actual {
+        Ok(_) => panic!(),
+        Err(error) => expect_snapshot_true(!policy::observed_head_is_stale(error, expected)),
+    }
+}
+
 fn expect_snapshot_true(actual: bool)
     requires actual,
 {
@@ -356,6 +410,18 @@ fn expect_snapshot_true(actual: bool)
     }
 }
 
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn snapshot_branch_oids_use_the_expected_github_fields() {
+    snapshot_branch_oid_expectations(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "cccccccccccccccccccccccccccccccccccccccc",
+        "dddddddddddddddddddddddddddddddddddddddd",
+        "invalid",
+    );
 }
 
 #[cfg(not(verus_keep_ghost))]

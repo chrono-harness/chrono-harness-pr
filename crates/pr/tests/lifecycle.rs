@@ -569,6 +569,47 @@ fn conflict_wins_over_checks_and_unknown_mergeability_is_exposed() {
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn open_pr_uses_the_live_head_before_reporting_conflict() {
+    let watch = |base, head| {
+        let mut reply = pending();
+        let pr = &mut reply["data"]["repository"]["pullRequest"];
+        pr["mergeable"] = json!("CONFLICTING");
+        pr["baseRef"]["target"]["oid"] = json!(base);
+        pr["headRef"]["target"]["oid"] = json!(head);
+        Host::new(vec![api(reply)]).run(&["pr-watch", "--pr", "42", "--head-sha", HEAD])
+    };
+    let base = "cccccccccccccccccccccccccccccccccccccccc";
+    for (head, exit, outcome) in [(OTHER, 4, "stale"), (HEAD, 1, "conflict")] {
+        let (code, result) = watch(Some(base), Some(head));
+        assert_eq!(
+            (code, result["outcome"].as_str()),
+            (exit, Some(outcome)),
+            "{result}"
+        );
+        assert_eq!(result["observed_head"], head);
+    }
+    for (base, head, error) in [
+        (None, None, "invalid remote field /baseRef/target/oid"),
+        (
+            Some("invalid"),
+            None,
+            "invalid remote field /headRef/target/oid",
+        ),
+        (Some(base), None, "invalid remote field /headRef/target/oid"),
+        (Some(base), Some("invalid"), "invalid live branch SHA"),
+    ] {
+        let (code, result) = watch(base, head);
+        assert_eq!(
+            (code, result["outcome"].as_str()),
+            (2, Some("unknown")),
+            "{result}"
+        );
+        assert_eq!(result["error"], error);
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn base_push_rechecks_both_tips_and_only_reports_an_observed_change() {
     let base = "cccccccccccccccccccccccccccccccccccccccc";
     let next = "dddddddddddddddddddddddddddddddddddddddd";
