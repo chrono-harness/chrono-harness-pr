@@ -1,5 +1,5 @@
 #[cfg(not(verus_keep_ghost))]
-use crate::verified_snapshot::{self, CheckClass};
+use crate::verified_snapshot::{self, CheckClass, CheckContext, CheckRunState};
 #[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
 #[cfg(not(verus_keep_ghost))]
@@ -197,28 +197,32 @@ pub(crate) fn evaluate_checks(
         let contexts = &rollup["contexts"];
         complete(contexts)?;
         for node in contexts["nodes"].as_array().ok_or("invalid check nodes")? {
-            let (name, state) = match field(node, "/__typename")? {
-                "CheckRun" => {
+            let (name, state) = match verified_snapshot::check_context(field(node, "/__typename")?)
+            {
+                CheckContext::Run => {
                     let id = verified_snapshot::positive_id(node["databaseId"].as_u64())
                         .ok_or("invalid check ID")?;
-                    if suites_by_check.contains_key(&id) {
+                    if !verified_snapshot::new_check_id(suites_by_check.get(&id).copied()) {
                         return Err("duplicate check ID".into());
                     }
                     let name = field(node, "/name")?;
                     let status = field(node, "/status")?;
-                    let state = if verified_snapshot::completed_check(status) {
-                        let conclusion = field(node, "/conclusion")?;
-                        if !verified_snapshot::supported_run_conclusion(conclusion) {
-                            return Err("invalid completed check conclusion".into());
+                    let state = match verified_snapshot::check_run_state(
+                        status,
+                        node.get("conclusion").is_some_and(Value::is_null),
+                    ) {
+                        CheckRunState::Completed => {
+                            let conclusion = field(node, "/conclusion")?;
+                            if !verified_snapshot::supported_run_conclusion(conclusion) {
+                                return Err("invalid completed check conclusion".into());
+                            }
+                            conclusion
                         }
-                        conclusion
-                    } else if verified_snapshot::pending_check_status(status) {
-                        if !node.get("conclusion").is_some_and(Value::is_null) {
+                        CheckRunState::Pending => status,
+                        CheckRunState::PendingWithConclusion => {
                             return Err("pending check has a conclusion".into());
                         }
-                        status
-                    } else {
-                        return Err("unknown check status".into());
+                        CheckRunState::Unknown => return Err("unknown check status".into()),
                     };
                     if !verified_snapshot::same_text(field(node, "/checkSuite/commit/oid")?, head) {
                         return Err("check suite commit mismatch".into());
@@ -229,18 +233,19 @@ pub(crate) fn evaluate_checks(
                     for row in latest["nodes"].as_array().ok_or("invalid latest checks")? {
                         let latest_id = verified_snapshot::positive_id(row["databaseId"].as_u64())
                             .ok_or("invalid latest check ID")?;
-                        if !latest_ids.insert(latest_id) {
+                        if !verified_snapshot::new_check_id(latest_ids.get(&latest_id).copied()) {
                             return Err("duplicate latest check ID".into());
                         }
+                        latest_ids.insert(latest_id);
                     }
-                    if latest_ids.is_empty() {
+                    let latest_ids: Vec<_> = latest_ids.into_iter().collect();
+                    if !verified_snapshot::nonempty_latest_ids(&latest_ids) {
                         return Err("empty latest check set".into());
                     }
                     let suite_id =
                         verified_snapshot::positive_id(node["checkSuite"]["databaseId"].as_u64())
                             .ok_or("invalid check suite ID")?;
                     suites_by_check.insert(id, suite_id);
-                    let latest_ids: Vec<_> = latest_ids.into_iter().collect();
                     if let Some(previous) = suites.get(&suite_id) {
                         if !verified_snapshot::canonical_set_equal(previous, &latest_ids) {
                             return Err("inconsistent latest check set".into());
@@ -253,7 +258,7 @@ pub(crate) fn evaluate_checks(
                     }
                     (name, state)
                 }
-                "StatusContext" => {
+                CheckContext::Status => {
                     if !verified_snapshot::same_text(field(node, "/commit/oid")?, head) {
                         return Err("status commit mismatch".into());
                     }
@@ -263,9 +268,9 @@ pub(crate) fn evaluate_checks(
                     }
                     (field(node, "/context")?, state)
                 }
-                _ => return Err("unknown check context type".into()),
+                CheckContext::Unknown => return Err("unknown check context type".into()),
             };
-            if name.is_empty() {
+            if !verified_snapshot::nonempty_check_name(name) {
                 return Err("empty or ambiguous check name".into());
             }
             if !required

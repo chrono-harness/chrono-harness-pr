@@ -161,7 +161,7 @@ pub(crate) fn pr_event(
     let head = pr.head.as_str();
     let number = pr.number;
     let required_suites = &pr.required_suite_ids;
-    use crate::verified_snapshot::{PushedBranch, WatchedBranch, pushed_branch, synchronized_head};
+    use crate::verified_snapshot::{self, PrNotice, PushedBranch, WatchedBranch};
     let head_ref = WatchedBranch {
         repository: &pr.head_repository,
         branch: &pr.branch,
@@ -172,55 +172,65 @@ pub(crate) fn pr_event(
         branch: base,
         oid: &pr.base_oid,
     };
-    if let Some(branch) = body["ref"]
+    let branch = body["ref"]
         .as_str()
-        .and_then(|r| r.strip_prefix("refs/heads/"))
-    {
-        let before = body["before"].as_str()?;
-        let after = body["after"].as_str()?;
-        let role = match pushed_branch(&head_ref, &base_ref, event_repo, branch, before, after)? {
-            PushedBranch::Head => "head",
-            PushedBranch::Base => "base",
-        };
-        return Some(
-            serde_json::json!({"event":"push","role":role,"repository":event_repo,"ref":body["ref"],"before":before,"after":after}),
-        );
-    }
-    if event_repo != repository {
-        return None;
-    }
-    let run = &body["workflow_run"];
-    let identity = match body["action"].as_str() {
-        Some("completed")
-            if run["event"] == "pull_request"
-                && run["status"] == "completed"
-                && run["head_sha"] == head
-                && run["pull_requests"].as_array().is_some_and(|items| {
-                    let matching_pr = items.iter().any(|item| {
-                        item["number"].as_u64() == Some(number) && item["head"]["sha"] == head
-                    });
-                    let matching_suite = run["check_suite_id"]
-                        .as_u64()
-                        .is_some_and(|id| required_suites.contains(&id));
-                    crate::verified_snapshot::notification_belongs(
-                        items.is_empty(),
-                        matching_pr,
-                        matching_suite,
-                    )
-                }) =>
-        {
-            let id = crate::verified_snapshot::positive_id(run["id"].as_u64())?;
+        .and_then(|r| r.strip_prefix("refs/heads/"));
+    let identity = match verified_snapshot::pr_notice(
+        branch.is_some(),
+        event_repo,
+        repository,
+        body["action"].as_str().unwrap_or(""),
+    ) {
+        PrNotice::Push => {
+            let before = body["before"].as_str()?;
+            let after = body["after"].as_str()?;
+            let role = match verified_snapshot::pushed_branch(
+                &head_ref, &base_ref, event_repo, branch?, before, after,
+            )? {
+                PushedBranch::Head => "head",
+                PushedBranch::Base => "base",
+            };
+            serde_json::json!({"event":"push","role":role,"repository":event_repo,"ref":body["ref"],"before":before,"after":after})
+        }
+        PrNotice::WorkflowCompleted => {
+            let run = &body["workflow_run"];
+            if !verified_snapshot::pr_workflow_completed(
+                run["event"].as_str()?,
+                run["status"].as_str()?,
+                run["head_sha"].as_str()?,
+                head,
+            ) {
+                return None;
+            }
+            let items = run["pull_requests"].as_array()?;
+            let matching_pr = items.iter().any(|item| {
+                verified_snapshot::matches_pr_number(item["number"].as_u64(), number)
+                    && item["head"]["sha"]
+                        .as_str()
+                        .is_some_and(|observed| verified_snapshot::same_text(observed, head))
+            });
+            let matching_suite = run["check_suite_id"]
+                .as_u64()
+                .is_some_and(|id| required_suites.contains(&id));
+            if !verified_snapshot::notification_belongs(
+                items.is_empty(),
+                matching_pr,
+                matching_suite,
+            ) {
+                return None;
+            }
+            let id = verified_snapshot::positive_id(run["id"].as_u64())?;
             let mut completion = serde_json::json!({"event":"workflow_run.completed","run_id":id});
             if let Some(attempt) = run.get("run_attempt") {
                 completion["run_attempt"] =
-                    crate::verified_snapshot::positive_id(attempt.as_u64())?.into();
+                    verified_snapshot::positive_id(attempt.as_u64())?.into();
             }
             completion
         }
-        Some("synchronize") => {
+        PrNotice::Synchronized => {
             let notice = &body["pull_request"];
             let after = body["after"].as_str()?;
-            if !synchronized_head(
+            if !verified_snapshot::synchronized_head(
                 number,
                 notice["number"].as_u64()?,
                 &head_ref,
@@ -237,14 +247,20 @@ pub(crate) fn pr_event(
             }
             serde_json::json!({"event":"pull_request.synchronize","role":"head","before":head,"after":after})
         }
-        Some("closed")
-            if body["pull_request"]["state"] == "closed"
-                && body["pull_request"]["number"].as_u64() == Some(number)
-                && body["pull_request"]["head"]["sha"] == head =>
-        {
+        PrNotice::Closed => {
+            let pr = &body["pull_request"];
+            if !verified_snapshot::pr_closed_notice(
+                pr["state"].as_str()?,
+                pr["number"].as_u64(),
+                number,
+                pr["head"]["sha"].as_str()?,
+                head,
+            ) {
+                return None;
+            }
             serde_json::json!({"event":"pull_request.closed"})
         }
-        _ => return None,
+        PrNotice::Ignored => return None,
     };
     Some(identity)
 }

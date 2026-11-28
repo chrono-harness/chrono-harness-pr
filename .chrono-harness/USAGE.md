@@ -39,3 +39,5 @@ CLI 把 File::write 实际返回的字节数或系统错误交给 write_step。�
 PR 快照通过 `serde_json::Value::pointer` 读取 GitHub GraphQL 指定路径，并通过 `Value::as_str` 取得原字符串。缺失、null 和非字符串字段都交给 `snapshot_branch_oids` 作为缺失值。活动字段的选择、SHA 校验和错误顺序由该函数证明。`pr-status` 和 `pr-watch` 使用选出的提交，独立证明根和 gh 替身共同验收这条路径。
 
 快照证明读取 GraphQL 解码后的字段、布尔值、ID 和数组。JSON 语法及重复成员由 `serde_json` 和 `json_syntax` 读取。Rust 的有序集合将 ID 排成唯一序列，映射按原 ID 查找 suite，Verus 核对各套 latest 集合及其成员所属的 suite。配置中的必需检查按原顺序输出，缺项和失败的优先级由同源折叠决定。等候只由匹配的通知唤醒。GitHub workflow 通知有 attempt 时，run ID 和 attempt 一起确定完成事件。同一次等待中重复的通知不再发出 GraphQL 查询。
+
+`pr-status`、`pr-open` 和 `pr-watch` 共用检查上下文判定。有序集合和映射的查找返回在当前观察中已经登记的值。JSON 适配器区分显式 null 和缺失或其他类型的 conclusion。同源判定保留重复编号、待定 conclusion、suite 提交和 latest 集合拒绝的先后顺序。通知适配器以 `strip_prefix("refs/heads/")` 提取分支后缀，并用当前快照的集合查询 suite 归属。Verus 根据提取的值决定事件分派和准入。

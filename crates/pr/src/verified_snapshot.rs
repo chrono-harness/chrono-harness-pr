@@ -577,6 +577,42 @@ pub fn notification_belongs(no_associations: bool, matching_pr: bool, matching_s
     if no_associations { matching_suite } else { matching_pr }
 }
 
+pub enum PrNotice { Push, WorkflowCompleted, Synchronized, Closed, Ignored }
+
+pub fn pr_notice(has_branch_ref: bool, repo: &str, expected_repo: &str, action: &str)
+    -> (kind: PrNotice)
+    ensures kind == (
+        if has_branch_ref { PrNotice::Push }
+        else if repo@ != expected_repo@ { PrNotice::Ignored }
+        else if action@ == "completed"@ { PrNotice::WorkflowCompleted }
+        else if action@ == "synchronize"@ { PrNotice::Synchronized }
+        else if action@ == "closed"@ { PrNotice::Closed }
+        else { PrNotice::Ignored }
+    ),
+{
+    if has_branch_ref { PrNotice::Push }
+    else if !same_text(repo, expected_repo) { PrNotice::Ignored }
+    else if same_text(action, "completed") { PrNotice::WorkflowCompleted }
+    else if same_text(action, "synchronize") { PrNotice::Synchronized }
+    else if same_text(action, "closed") { PrNotice::Closed }
+    else { PrNotice::Ignored }
+}
+
+pub fn pr_workflow_completed(event: &str, state: &str, head: &str, expected_head: &str)
+    -> (accepted: bool)
+    ensures accepted == (event@ == "pull_request"@ && state@ == "completed"@ && head@ == expected_head@),
+{
+    same_text(event, "pull_request") && same_text(state, "completed") && same_text(head, expected_head)
+}
+
+pub fn pr_closed_notice(state: &str, number: Option<u64>, expected_number: u64,
+    head: &str, expected_head: &str) -> (accepted: bool)
+    ensures accepted == (state@ == "closed"@ && number == Some(expected_number) && head@ == expected_head@),
+{
+    same_text(state, "closed") && matches_pr_number(number, expected_number)
+        && same_text(head, expected_head)
+}
+
 pub fn snapshot_outcome(stale: bool, closed: bool, failed: bool, pending: bool)
     -> (outcome: SnapshotOutcome)
     ensures outcome == snapshot_outcome_spec(stale, closed, failed, pending),
@@ -691,6 +727,53 @@ pub fn complete_check_page(has_next: Option<bool>) -> (complete: bool)
     ensures complete == (has_next == Some(false)),
 {
     matches!(has_next, Some(false))
+}
+
+pub enum CheckContext { Run, Status, Unknown }
+
+pub fn check_context(kind: &str) -> (context: CheckContext)
+    ensures context == (if kind@ == "CheckRun"@ { CheckContext::Run }
+        else if kind@ == "StatusContext"@ { CheckContext::Status }
+        else { CheckContext::Unknown }),
+{
+    if same_text(kind, "CheckRun") { CheckContext::Run }
+    else if same_text(kind, "StatusContext") { CheckContext::Status }
+    else { CheckContext::Unknown }
+}
+
+pub fn new_check_id(known: Option<u64>) -> (fresh: bool)
+    ensures fresh == known.is_none(),
+{
+    known.is_none()
+}
+
+pub fn nonempty_latest_ids(ids: &[u64]) -> (nonempty: bool)
+    ensures nonempty == (ids@.len() > 0),
+{
+    ids.len() > 0
+}
+
+pub fn nonempty_check_name(name: &str) -> (nonempty: bool)
+    ensures nonempty == (name@.len() > 0),
+{
+    !name.is_empty()
+}
+
+pub enum CheckRunState { Completed, Pending, PendingWithConclusion, Unknown }
+
+pub fn check_run_state(status: &str, explicit_null: bool) -> (state: CheckRunState)
+    ensures state == (
+        if status@ == "COMPLETED"@ { CheckRunState::Completed }
+        else if check_class_spec(status@) == CheckClass::Pending
+            && status@ != "MISSING"@ && status@ != "EXPECTED"@ {
+            if explicit_null { CheckRunState::Pending } else { CheckRunState::PendingWithConclusion }
+        } else { CheckRunState::Unknown }
+    ),
+{
+    if completed_check(status) { CheckRunState::Completed }
+    else if pending_check_status(status) {
+        if explicit_null { CheckRunState::Pending } else { CheckRunState::PendingWithConclusion }
+    } else { CheckRunState::Unknown }
 }
 
 pub fn completed_check(status: &str) -> (completed: bool)
