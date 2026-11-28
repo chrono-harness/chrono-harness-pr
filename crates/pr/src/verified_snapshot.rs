@@ -285,6 +285,7 @@ pub enum SnapshotOutcome {
     Failed,
     Pending,
     Passed,
+    Unknown,
 }
 
 pub open spec fn check_class_spec(state: Seq<char>) -> CheckClass {
@@ -600,6 +601,7 @@ pub fn snapshot_outcome_label(outcome: SnapshotOutcome) -> (label: &'static str)
         SnapshotOutcome::Failed => "failed"@,
         SnapshotOutcome::Pending => "pending"@,
         SnapshotOutcome::Passed => "passed"@,
+        SnapshotOutcome::Unknown => "unknown"@,
     },
 {
     match outcome {
@@ -608,7 +610,270 @@ pub fn snapshot_outcome_label(outcome: SnapshotOutcome) -> (label: &'static str)
         SnapshotOutcome::Failed => "failed",
         SnapshotOutcome::Pending => "pending",
         SnapshotOutcome::Passed => "passed",
+        SnapshotOutcome::Unknown => "unknown",
     }
+}
+
+pub fn matches_pr_number(observed: Option<u64>, number: u64) -> (matches: bool)
+    ensures matches == (observed == Some(number)),
+{
+    match observed {
+        Some(candidate) => candidate == number,
+        None => false,
+    }
+}
+
+pub fn positive_id(observed: Option<u64>) -> (id: Option<u64>)
+    ensures id == (match observed { Some(n) if n > 0 => Some(n), _ => None }),
+{
+    match observed {
+        Some(n) if n > 0 => Some(n),
+        _ => None,
+    }
+}
+
+pub fn repository_envelope(object: bool, errors: bool) -> (accepted: bool)
+    ensures accepted == (object && !errors),
+{
+    object && !errors
+}
+
+pub fn graphql_errors(null: bool, count: Option<usize>) -> (errors: bool)
+    ensures errors == (!null && count != Some(0usize)),
+{
+    !null && !matches!(count, Some(0))
+}
+
+pub fn head_repository_name(bytes: &[u8]) -> (accepted: bool)
+    ensures accepted == (exists|i: int| 0 < i && i + 1 < bytes@.len()
+        && (#[trigger] bytes@[i]) == 47
+        && forall|j: int| 0 <= j < bytes@.len() && i != j ==> (#[trigger] bytes@[j]) != 47),
+{
+    let mut slash = bytes.len();
+    let mut i = 0;
+    while i < bytes.len()
+        invariant
+            i <= bytes.len(),
+            slash < i || slash == bytes.len(),
+            slash < i ==> bytes@[slash as int] == 47 && 0 < slash && slash + 1 < bytes.len(),
+            forall|j: int| 0 <= j < i && j != slash ==> (#[trigger] bytes@[j]) != 47,
+        decreases bytes.len() - i,
+    {
+        if bytes[i] == 47 {
+            if slash < i {
+                assert(bytes@[slash as int] == 47 && bytes@[i as int] == 47);
+                return false;
+            }
+            if i == 0 || i + 1 == bytes.len() {
+                return false;
+            }
+            slash = i;
+        }
+        i += 1;
+    }
+    if slash < bytes.len() {
+        assert(bytes@[slash as int] == 47);
+        true
+    } else {
+        false
+    }
+}
+
+pub fn valid_base_and_mergeability(base: &str, mergeable: &str) -> (accepted: bool)
+    ensures accepted == (sha_format(base.spec_bytes()) && (mergeable@ == "MERGEABLE"@
+        || mergeable@ == "CONFLICTING"@ || mergeable@ == "UNKNOWN"@)),
+{
+    valid_sha_text(base) && (same_text(mergeable, "MERGEABLE")
+        || same_text(mergeable, "CONFLICTING") || same_text(mergeable, "UNKNOWN"))
+}
+
+pub fn complete_check_page(has_next: Option<bool>) -> (complete: bool)
+    ensures complete == (has_next == Some(false)),
+{
+    matches!(has_next, Some(false))
+}
+
+pub fn completed_check(status: &str) -> (completed: bool)
+    ensures completed == (status@ == "COMPLETED"@),
+{
+    same_text(status, "COMPLETED")
+}
+
+pub fn supported_run_conclusion(conclusion: &str) -> (accepted: bool)
+    ensures accepted == (check_class_spec(conclusion@) == CheckClass::Passed
+        || (check_class_spec(conclusion@) == CheckClass::Failed && conclusion@ != "ERROR"@)),
+{
+    match classify_check(conclusion) {
+        CheckClass::Passed => true,
+        CheckClass::Failed => !same_text(conclusion, "ERROR"),
+        _ => false,
+    }
+}
+
+pub fn pending_check_status(status: &str) -> (accepted: bool)
+    ensures accepted == (check_class_spec(status@) == CheckClass::Pending
+        && status@ != "MISSING"@ && status@ != "EXPECTED"@),
+{
+    match classify_check(status) {
+        CheckClass::Pending => !same_text(status, "MISSING") && !same_text(status, "EXPECTED"),
+        _ => false,
+    }
+}
+
+pub fn supported_commit_status(state: &str) -> (accepted: bool)
+    ensures accepted == (state@ == "SUCCESS"@ || state@ == "FAILURE"@ || state@ == "ERROR"@
+        || state@ == "PENDING"@ || state@ == "EXPECTED"@),
+{
+    same_text(state, "SUCCESS") || same_text(state, "FAILURE") || same_text(state, "ERROR")
+        || same_text(state, "PENDING") || same_text(state, "EXPECTED")
+}
+
+pub fn canonical_set_equal(left: &[u64], right: &[u64]) -> (equal: bool)
+    ensures equal == (left@ == right@),
+{
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < left.len()
+        invariant
+            i <= left.len(), left.len() == right.len(),
+            forall|j: int| 0 <= j < i ==> (#[trigger] left@[j]) == right@[j],
+        decreases left.len() - i,
+    {
+        if left[i] != right[i] {
+            return false;
+        }
+        i += 1;
+    }
+    assert(left@ =~= right@);
+    true
+}
+
+pub fn contains_check_id(ids: &[u64], id: u64) -> (present: bool)
+    ensures present == (exists|i: int| 0 <= i < ids@.len() && (#[trigger] ids@[i]) == id),
+{
+    let mut i = 0;
+    while i < ids.len()
+        invariant
+            i <= ids.len(),
+            forall|j: int| 0 <= j < i ==> (#[trigger] ids@[j]) != id,
+        decreases ids.len() - i,
+    {
+        if ids[i] == id {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+pub fn latest_members_belong(suite: u64, observed_suites: &[Option<u64>]) -> (complete: bool)
+    ensures complete == (forall|i: int| 0 <= i < observed_suites@.len()
+        ==> (#[trigger] observed_suites@[i]) == Some(suite)),
+{
+    let mut i = 0;
+    while i < observed_suites.len()
+        invariant
+            i <= observed_suites.len(),
+            forall|j: int| 0 <= j < i ==> (#[trigger] observed_suites@[j]) == Some(suite),
+        decreases observed_suites.len() - i,
+    {
+        if !matches_pr_number(observed_suites[i], suite) {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+pub fn compatible_required_success(
+    previous: &str, next: &str, first_workflow: Option<u64>,
+    workflow: Option<u64>, new_suite: bool,
+) -> (accepted: bool)
+    ensures accepted == (previous@ == "SUCCESS"@ && next@ == "SUCCESS"@
+        && workflow.is_some() && first_workflow == workflow && new_suite),
+{
+    same_text(previous, "SUCCESS") && same_text(next, "SUCCESS") && new_suite
+        && match workflow { Some(id) => matches_pr_number(first_workflow, id), None => false }
+}
+
+pub fn missing_check_state(observed: Option<&str>) -> (state: &str)
+    ensures state@ == match observed { Some(state) => state@, None => "MISSING"@ },
+{
+    match observed { Some(state) => state, None => "MISSING" }
+}
+
+pub fn fold_required_checks(states: &[&str]) -> (outcome: SnapshotOutcome)
+    ensures outcome == snapshot_outcome_spec(false, false,
+        exists|i: int| 0 <= i < states@.len() && check_class_spec((#[trigger] states@[i])@) == CheckClass::Failed,
+        exists|i: int| 0 <= i < states@.len() && check_class_spec((#[trigger] states@[i])@) == CheckClass::Pending),
+{
+    let mut failed = false;
+    let mut pending = false;
+    let mut i = 0;
+    while i < states.len()
+        invariant
+            i <= states.len(),
+            failed == (exists|j: int| 0 <= j < i && check_class_spec((#[trigger] states@[j])@) == CheckClass::Failed),
+            pending == (exists|j: int| 0 <= j < i && check_class_spec((#[trigger] states@[j])@) == CheckClass::Pending),
+        decreases states.len() - i,
+    {
+        match classify_check(states[i]) {
+            CheckClass::Failed => failed = true,
+            CheckClass::Pending => pending = true,
+            _ => {},
+        }
+        i += 1;
+    }
+    snapshot_outcome(false, false, failed, pending)
+}
+
+pub fn snapshot_mergeability(
+    state: &str, mergeable: &str, checks: SnapshotOutcome,
+) -> (outcome: SnapshotOutcome)
+    ensures outcome == (if state@ == "OPEN"@ && mergeable@ == "UNKNOWN"@
+        && checks == SnapshotOutcome::Passed { SnapshotOutcome::Unknown } else { checks }),
+{
+    if pull_request_open(state) && same_text(mergeable, "UNKNOWN")
+        && matches!(checks, SnapshotOutcome::Passed) {
+        SnapshotOutcome::Unknown
+    } else {
+        checks
+    }
+}
+
+pub fn wait_for_pr(outcome: &str) -> (wait: bool)
+    ensures wait == (outcome@ == "pending"@),
+{
+    same_text(outcome, "pending")
+}
+
+pub fn finish_pr_wait(outcome: &str, checks_changed: bool, before: &str, after: &str) -> (finish: bool)
+    ensures finish == (outcome@ != "pending"@ || checks_changed || before@ != after@),
+{
+    !wait_for_pr(outcome) || checks_changed || !same_text(before, after)
+}
+
+pub fn remember_pr_event(seen: &mut Vec<String>, key: String) -> (fresh: bool)
+    ensures
+        fresh == !(exists|i: int| 0 <= i < old(seen)@.len() && (#[trigger] old(seen)@[i])@ == key@),
+        seen@ == (if fresh { old(seen)@.push(key) } else { old(seen)@ }),
+{
+    let mut i = 0;
+    while i < seen.len()
+        invariant
+            seen@ == old(seen)@, i <= seen.len(),
+            forall|j: int| 0 <= j < i ==> (#[trigger] seen@[j])@ != key@,
+        decreases seen.len() - i,
+    {
+        if seen[i] == key {
+            return false;
+        }
+        i += 1;
+    }
+    seen.push(key);
+    true
 }
 
 }
