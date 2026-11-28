@@ -47,6 +47,15 @@ pub use crate::{
     notification::{FramePart, frame_part},
 };
 
+/// Bind the standard UTF-8 and whitespace observations to the creation policy.
+#[cfg(not(verus_keep_ghost))]
+pub fn decode_creation_receipt(stdout: &[u8], repository: &str) -> Result<u64, &'static str> {
+    let url = std::str::from_utf8(stdout)
+        .ok()
+        .map(|text| text.trim().as_bytes());
+    creation_number(url, repository.as_bytes())
+}
+
 verus! {
 
 /// Only a successfully completed gh invocation supplies bytes for an operation response.
@@ -157,6 +166,147 @@ pub fn valid_pr_number(number: u64) -> (valid: bool)
     ensures valid == (1 <= number <= 2147483647),
 {
     number > 0 && number <= i32::MAX as u64
+}
+
+pub const MAX_PR_NUMBER: u64 = i32::MAX as u64;
+pub const INVALID_PR_NUMBER: u64 = MAX_PR_NUMBER + 1;
+pub const GITHUB_URL: [u8; 19] = [
+    'h' as u8, 't' as u8, 't' as u8, 'p' as u8, 's' as u8, ':' as u8, '/' as u8,
+    '/' as u8, 'g' as u8, 'i' as u8, 't' as u8, 'h' as u8, 'u' as u8, 'b' as u8,
+    '.' as u8, 'c' as u8, 'o' as u8, 'm' as u8, '/' as u8,
+];
+pub const PULL_PATH: [u8; 6] = ['/' as u8, 'p' as u8, 'u' as u8, 'l' as u8, 'l' as u8, '/' as u8];
+
+pub open spec fn pr_decimal(text: Seq<u8>) -> u64
+    decreases text.len(),
+{
+    if text.len() == 0 {
+        0
+    } else {
+        let prior = pr_decimal(text.drop_last());
+        let byte = text.last();
+        let number = prior * 10 + (byte as int - 48);
+        if 48 <= byte <= 57 && number <= MAX_PR_NUMBER {
+            number as u64
+        } else {
+            INVALID_PR_NUMBER
+        }
+    }
+}
+
+pub fn parse_pr_number(bytes: &[u8], start: usize) -> (number: Option<u64>)
+    requires start <= bytes@.len(),
+    ensures ({
+        let value = pr_decimal(bytes@.skip(start as int));
+        number == if 1 <= value <= MAX_PR_NUMBER { Some(value) } else { None }
+    }),
+{
+    let mut index = start;
+    let mut number = 0;
+    proof {
+        assert(bytes@.subrange(start as int, start as int) =~= Seq::<u8>::empty());
+    }
+    while index < bytes.len()
+        invariant
+            start <= index <= bytes@.len(),
+            number <= INVALID_PR_NUMBER,
+            number == pr_decimal(bytes@.subrange(start as int, index as int)),
+        decreases bytes.len() - index,
+    {
+        let byte = bytes[index];
+        if 48 <= byte && byte <= 57 {
+            let next = number * 10 + u64::from(byte - 48);
+            number = if next <= MAX_PR_NUMBER { next } else { INVALID_PR_NUMBER };
+        } else {
+            number = INVALID_PR_NUMBER;
+        }
+        proof {
+            let prefix = bytes@.subrange(start as int, (index + 1) as int);
+            assert(prefix.drop_last() =~= bytes@.subrange(start as int, index as int));
+            assert(prefix.last() == bytes@[index as int]);
+            reveal_with_fuel(pr_decimal, 2);
+        }
+        index += 1;
+    }
+    proof {
+        assert(bytes@.subrange(start as int, index as int) =~= bytes@.skip(start as int));
+    }
+    if valid_pr_number(number) { Some(number) } else { None }
+}
+
+pub open spec fn prefix_at(bytes: Seq<u8>, offset: int, prefix: Seq<u8>) -> bool {
+    0 <= offset && offset + prefix.len() <= bytes.len()
+        && bytes.subrange(offset, offset + prefix.len()) =~= prefix
+}
+
+fn has_prefix_at(bytes: &[u8], offset: usize, prefix: &[u8]) -> (matches: bool)
+    requires offset <= bytes@.len(),
+    ensures matches == prefix_at(bytes@, offset as int, prefix@),
+{
+    let length = bytes.len();
+    if prefix.len() > length - offset {
+        return false;
+    }
+    let mut index = 0;
+    while index < prefix.len()
+        invariant
+            offset + prefix@.len() <= length == bytes@.len(),
+            index <= prefix@.len(),
+            forall|i: int| 0 <= i < index ==> #[trigger] prefix@[i] == bytes@[offset + i],
+        decreases prefix.len() - index,
+    {
+        if prefix[index] != bytes[offset + index] {
+            return false;
+        }
+        index += 1;
+    }
+    assert(bytes@.subrange(offset as int, offset + prefix@.len()) =~= prefix@);
+    true
+}
+
+pub open spec fn creation_number_spec(url: Seq<u8>, repository: Seq<u8>) -> Option<u64> {
+    let host_end = GITHUB_URL@.len() as int;
+    let repo_end = host_end + repository.len();
+    let number_start = repo_end + PULL_PATH@.len();
+    let value = pr_decimal(url.skip(number_start));
+    if prefix_at(url, 0, GITHUB_URL@) && prefix_at(url, host_end, repository)
+        && prefix_at(url, repo_end, PULL_PATH@) && 1 <= value <= MAX_PR_NUMBER
+    {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+/// The adapter supplies the decoded and whitespace-trimmed stdout, or None for invalid UTF-8.
+pub fn creation_number(url: Option<&[u8]>, repository: &[u8])
+    -> (number: Result<u64, &'static str>)
+    ensures number == match url {
+        None => Err("non-UTF-8 creation output"),
+        Some(bytes) => match creation_number_spec(bytes@, repository@) {
+            Some(number) => Ok(number),
+            None => Err("creation returned an invalid PR URL; query existing PR before retrying"),
+        },
+    },
+{
+    let Some(url) = url else {
+        return Err("non-UTF-8 creation output");
+    };
+    let invalid = "creation returned an invalid PR URL; query existing PR before retrying";
+    if !has_prefix_at(url, 0, &GITHUB_URL) || !has_prefix_at(url, GITHUB_URL.len(), repository) {
+        return Err(invalid);
+    }
+    let length = url.len();
+    assert(GITHUB_URL@.len() + repository@.len() <= length);
+    let repo_end = GITHUB_URL.len() + repository.len();
+    if !has_prefix_at(url, repo_end, &PULL_PATH) {
+        return Err(invalid);
+    }
+    assert(repo_end + PULL_PATH@.len() <= length);
+    match parse_pr_number(url, repo_end + PULL_PATH.len()) {
+        Some(number) => Ok(number),
+        None => Err(invalid),
+    }
 }
 
 pub enum OpenCandidate {

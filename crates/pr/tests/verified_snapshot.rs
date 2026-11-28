@@ -409,6 +409,55 @@ fn opening_requires_one_valid_candidate_or_an_empty_list() {
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn creation_receipt_requires_the_configured_repository_and_decimal_suffix() {
+    // https://github.com/o/r/pull/042
+    let url: &[u8] = &[
+        104, 116, 116, 112, 115, 58, 47, 47, 103, 105, 116, 104, 117, 98, 46, 99, 111,
+        109, 47, 111, 47, 114, 47, 112, 117, 108, 108, 47, 48, 52, 50,
+    ];
+    let repository: &[u8] = &[111, 47, 114];
+    let fork: &[u8] = &[111, 47, 115];
+    let signed: &[u8] = &[43, 52, 50];
+    let maximum: &[u8] = &[50, 49, 52, 55, 52, 56, 51, 54, 52, 55];
+    let too_large: &[u8] = &[50, 49, 52, 55, 52, 56, 51, 54, 52, 56];
+    proof {
+        let host_end = 19int;
+        let repo_end = 22int;
+        let number_start = 28int;
+        assert(policy::GITHUB_URL@.len() == host_end);
+        assert(policy::PULL_PATH@.len() == 6);
+        assert(url@.subrange(0, host_end) =~= policy::GITHUB_URL@);
+        assert(url@.subrange(host_end, repo_end) =~= repository@);
+        assert(url@.subrange(repo_end, number_start) =~= policy::PULL_PATH@);
+        assert(fork@[2] == 115 && url@[21] == 114);
+        assert(url@.skip(number_start) =~= seq![48u8, 52u8, 50u8]);
+        assert(policy::pr_decimal(url@.skip(number_start)) == 42) by {
+            reveal_with_fuel(policy::pr_decimal, 4);
+        }
+        assert(policy::creation_number_spec(url@, repository@) == Some(42u64));
+        assert(policy::creation_number_spec(url@, fork@) == None::<u64>);
+        assert(policy::pr_decimal(signed@) == 2147483648) by {
+            reveal_with_fuel(policy::pr_decimal, 4);
+        }
+        assert(policy::pr_decimal(maximum@) == 2147483647) by {
+            reveal_with_fuel(policy::pr_decimal, 11);
+        }
+        assert(policy::pr_decimal(too_large@) == 2147483648) by {
+            reveal_with_fuel(policy::pr_decimal, 11);
+        }
+        assert(signed@.skip(0) =~= signed@);
+        assert(maximum@.skip(0) =~= maximum@);
+        assert(too_large@.skip(0) =~= too_large@);
+    }
+    expect_snapshot_true(matches!(policy::creation_number(Some(url), repository), Ok(42)));
+    expect_snapshot_true(matches!(policy::creation_number(Some(url), fork), Err(_)));
+    expect_snapshot_true(matches!(policy::creation_number(None, repository), Err(_)));
+    expect_snapshot_true(matches!(policy::parse_pr_number(signed, 0), None));
+    expect_snapshot_true(matches!(policy::parse_pr_number(maximum, 0), Some(2147483647)));
+    expect_snapshot_true(matches!(policy::parse_pr_number(too_large, 0), None));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn open_readback_checks_identity_before_preserving_a_stale_snapshot() {
     proof {
         reveal_strlit("a"); reveal_strlit("b");
