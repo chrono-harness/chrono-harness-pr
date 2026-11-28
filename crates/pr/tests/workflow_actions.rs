@@ -89,12 +89,18 @@ mod native {
     fn installer_and_roadmap_script_match_the_published_render() {
         use sha2::{Digest, Sha256};
 
+        let digest = |source: &str| {
+            Sha256::digest(source.as_bytes())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        };
         assert_eq!(
-            format!("{:x}", Sha256::digest(deployed_installer())),
+            digest(deployed_installer()),
             "40f5d822dce9ad1e31ccabeed9df7ffcb3b59cffcb000411b13306b05aa6bb72"
         );
         assert_eq!(
-            format!("{:x}", Sha256::digest(deployed_roadmap_script())),
+            digest(deployed_roadmap_script()),
             "86e97ab0ed63be36d37d32e7d164da4e226c6f616685ad4ce1dd75f814095f8a"
         );
     }
