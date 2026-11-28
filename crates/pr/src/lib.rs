@@ -189,18 +189,9 @@ impl Args {
             .ok_or_else(|| "invalid run ID".into())
     }
     fn number(&self) -> Result<u64, String> {
-        parse_pr_number(self.get("--pr")?).ok_or_else(|| "invalid PR number".into())
+        verified_snapshot::parse_pr_number(self.get("--pr")?.as_bytes(), 0)
+            .ok_or_else(|| "invalid PR number".into())
     }
-}
-
-#[cfg(not(verus_keep_ghost))]
-fn parse_pr_number(text: &str) -> Option<u64> {
-    if !text.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    text.parse::<u64>()
-        .ok()
-        .filter(|number| verified_snapshot::valid_pr_number(*number))
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -366,9 +357,13 @@ impl Client {
             CommandReply::Nonzero(code) => Err(format!(
                 "GitHub command exited {code}; see original receipt"
             )),
-            CommandReply::CreationUrl => Ok(json!(
-                String::from_utf8(process.stdout).map_err(|_| "non-UTF-8 creation output")?
-            )),
+            CommandReply::CreationUrl => {
+                let number = verified_snapshot::decode_creation_receipt(
+                    &process.stdout,
+                    &self.config.repository,
+                )?;
+                Ok(json!(number))
+            }
             CommandReply::Json => snapshot::response(&process.stdout),
         }
     }
@@ -496,11 +491,7 @@ impl Client {
                     argv.push("--draft".into());
                 }
                 let created = self.call(argv, &body)?;
-                let url = created.as_str().ok_or("invalid create response")?.trim();
-                let prefix = format!("https://github.com/{}/pull/", self.config.repository);
-                let number = url.strip_prefix(&prefix).and_then(parse_pr_number).ok_or(
-                    "creation returned an invalid PR URL; query existing PR before retrying",
-                )?;
+                let number = created.as_u64().ok_or("invalid create response")?;
                 self.update_reminder(number, Some(head));
                 (number, "opened")
             }

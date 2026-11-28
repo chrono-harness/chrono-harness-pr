@@ -923,6 +923,7 @@ fn create_receipt_binds_repository_and_a_decimal_graphql_number() {
         "https://github.com/example/host/pull/0",
         "https://github.com/example/host/pull/2147483648",
         "https://github.com/example/host/pull/+42",
+        "https://github.com/example/host/pull/４２",
         "https://github.com/example/host/pull/42?query",
         "https://github.com/example/host/pull/",
     ] {
@@ -943,13 +944,33 @@ fn create_receipt_binds_repository_and_a_decimal_graphql_number() {
     let h = Host::new(vec![
         resolve(),
         list(json!([])),
-        json!({"prefix":["pr","create"],"stdout":"https://github.com/example/host/pull/00042"}),
+        json!({"prefix":["pr","create"],"stdout":"\u{2003}https://github.com/example/host/pull/00042\r\n"}),
         api(snapshot()),
     ]);
     let (code, result) = h.run(&open_args());
     assert_eq!(code, 0, "{result}");
     assert_eq!(result["pr"], 42);
     assert_eq!(reminders(&h).len(), 1);
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn invalid_create_reply_follows_command_status_and_precedes_reminders() {
+    let invalid = chrono_pr::verified_snapshot::decode_creation_receipt(&[255], "example/host");
+    assert_eq!(invalid, Err("non-UTF-8 creation output"));
+    let h = Host::new(vec![
+        resolve(),
+        list(json!([])),
+        json!({"prefix":["pr","create"],"stdout":"https://github.com/example/host/pull/42","exit":1}),
+    ]);
+    let (code, result) = h.run(&open_args());
+    assert_eq!(code, 2, "{result}");
+    assert_eq!(
+        result["error"],
+        "GitHub command exited 1; see original receipt"
+    );
+    assert_eq!(h.calls().len(), 3);
+    assert!(reminders(&h).is_empty());
 }
 
 #[test]

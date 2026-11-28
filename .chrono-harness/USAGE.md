@@ -41,3 +41,5 @@ PR 快照通过 `serde_json::Value::pointer` 读取 GitHub GraphQL 指定路径�
 快照证明读取 GraphQL 解码后的字段、布尔值、ID 和数组。JSON 语法及重复成员由 `serde_json` 和 `json_syntax` 读取。Rust 的有序集合将 ID 排成唯一序列，映射按原 ID 查找 suite，Verus 核对各套 latest 集合及其成员所属的 suite。配置中的必需检查按原顺序输出，缺项和失败的优先级由同源折叠决定。等候只由匹配的通知唤醒。GitHub workflow 通知有 attempt 时，run ID 和 attempt 一起确定完成事件。同一次等待中重复的通知不再发出 GraphQL 查询。
 
 `pr-status`、`pr-open` 和 `pr-watch` 共用检查上下文判定。有序集合和映射的查找返回在当前观察中已经登记的值。JSON 适配器区分显式 null 和缺失或其他类型的 conclusion。同源判定保留重复编号、待定 conclusion、suite 提交和 latest 集合拒绝的先后顺序。通知适配器以 `strip_prefix("refs/heads/")` 提取分支后缀，并用当前快照的集合查询 suite 归属。Verus 根据提取的值决定事件分派和准入。
+
+`pr-open` 在已证明的命令回复类型判定之后读取创建回执。Rust 标准库的 `str::from_utf8` 提供有效 UTF-8 或解码失败，`str::trim` 按 Unicode White_Space 去除两端字符。适配器将该观察和配置仓库的原字节交给 `creation_number`。生产与独立预期证明根绑定 HTTPS 主机、配置仓库、`/pull/` 路径和 ASCII 十进制编号。只有回执返回合法编号才登记提醒，再按编号查询 GitHub。原子进程状态和原输出字节仍随命令回执返回。
