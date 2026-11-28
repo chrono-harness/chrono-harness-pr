@@ -60,9 +60,13 @@ fn check_adapter_rejects_incomplete_or_ambiguous_facts() {
         reveal_strlit("CheckRun"); reveal_strlit("StatusContext");
         reveal_strlit("COMPLETED"); reveal_strlit("QUEUED"); reveal_strlit("EXPECTED");
         reveal_strlit(""); reveal_strlit("check");
+        reveal_strlit("MISSING"); reveal_strlit("SUCCESS");
         assert("CheckRun"@[0] == 'C'); assert("StatusContext"@[0] == 'S');
         assert("COMPLETED"@[0] == 'C'); assert("QUEUED"@[0] == 'Q');
         assert("EXPECTED"@[0] == 'E');
+        assert("MISSING"@[0] == 'M');
+        assert("SUCCESS"@[0] == 'S');
+        assert(policy::check_class_spec("QUEUED"@) == policy::CheckClass::Pending);
     }
     expect_snapshot_true(matches!(policy::check_context("CheckRun"), policy::CheckContext::Run));
     expect_snapshot_true(matches!(policy::check_context("StatusContext"), policy::CheckContext::Status));
